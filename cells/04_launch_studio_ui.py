@@ -80,13 +80,22 @@ except Exception as e:
 print("\n🔗 Generating Cloudflare Public Tunnel link (accessible from anywhere)...")
 subprocess.run("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared", shell=True)
 subprocess.run(f"nohup cloudflared tunnel --url http://127.0.0.1:{PORT} --no-autoupdate > /content/cloudflared.log 2>&1 &", shell=True)
-time.sleep(4)
 
-try:
-    tunnel_url = subprocess.run("grep -o 'https://.*trycloudflare.com' /content/cloudflared.log | head -1",
-                                shell=True, capture_output=True, text=True).stdout.strip()
-    if tunnel_url:
-        print(f"\n🌟 PUBLIC WEB STUDIO URL: {tunnel_url}")
-        print("   (Open this link in your browser to clone voices immediately!)")
-except Exception:
-    pass
+tunnel_url = ""
+for _ in range(15):
+    time.sleep(1)
+    res = subprocess.run("grep -o 'https://.*trycloudflare.com' /content/cloudflared.log | head -1",
+                         shell=True, capture_output=True, text=True)
+    found = res.stdout.strip()
+    if found:
+        tunnel_url = found
+        break
+
+if tunnel_url:
+    print(f"\n========================================================")
+    print(f"🌟 PUBLIC WEB STUDIO URL:")
+    print(f"👉 {tunnel_url}")
+    print(f"========================================================")
+    print("(Open this link on your phone or laptop browser to clone voices!)")
+else:
+    print("\nℹ️ Cloudflare tunnel starting up. If link is not visible, check: cat /content/cloudflared.log")
