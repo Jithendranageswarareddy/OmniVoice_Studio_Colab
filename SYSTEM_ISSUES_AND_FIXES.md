@@ -19,10 +19,28 @@
 | **ISS-009** | Model Evolution | Need for high-energy social media / YouTube narration fine-tuning | ⚪ ROADMAP (Design Phase) |
 | **ISS-010** | Platform / Kaggle | `fatal: repository 'https://github.com/' not found` on Kaggle migration | 🟢 RESOLVED |
 | **ISS-011** | Caching / Kaggle | Preventing model re-downloading on Kaggle ephemeral sessions | 🟢 RESOLVED |
+| **ISS-012** | Model Assets | HTTP 500 `JSONDecodeError` / `NETWORK_ERROR` on un-cached tokenizer | 🟢 RESOLVED |
 
 ---
 
 ## 🔍 Detailed Issue Breakdown
+
+---
+
+### [ISS-012] HTTP 500 `JSONDecodeError` / `NETWORK_ERROR` During First Generation
+* **Date Encountered:** Kaggle First Voice Clone
+* **Component:** `eustlb/higgs-audio-v2-tokenizer` / Hugging Face JSON Cache
+* **Symptom:**
+  Clicking *"✨ Clone My Voice"* returned:
+  `HTTP 500: {"detail":"VoiceStudio hit an internal error; check the backend log for details.","error_class":"NETWORK_ERROR","error_type":"JSONDecodeError"}`
+* **Root Cause:**
+  `k2-fsa/OmniVoice` depends on an auxiliary audio tokenizer: `eustlb/higgs-audio-v2-tokenizer`. Because only the base OmniVoice weights were pre-downloaded in setup, the engine attempted to download `tokenizer.json` and `config.json` on the fly during the `/generate` request. The dynamic download resulted in an incomplete or corrupted 0-byte JSON file in cache, causing Python's `json.loads` to crash with `JSONDecodeError`.
+* **Fix Applied:**
+  1. **Corrupt Cache Cleaner:** Added an automated check before launch that validates all `.json` files in the Hugging Face cache and automatically purges any 0-byte or unparseable files so they re-fetch cleanly.
+  2. **Tokenizer Pre-Caching:** Explicitly pre-downloads both `k2-fsa/OmniVoice` and `eustlb/higgs-audio-v2-tokenizer` using `snapshot_download` in setup step 5 so zero network calls happen during generation.
+  3. **Backend Diagnostics:** Added `/api/logs` endpoint in `colab_server.py` and automatic backend log printing on any non-200 responses.
+* **Result:**
+  All weights and tokenizers are 100% resident locally before generation starts; `JSONDecodeError` is eliminated.
 
 ---
 

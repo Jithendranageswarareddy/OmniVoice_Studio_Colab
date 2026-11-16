@@ -167,18 +167,39 @@ try:
 except Exception as e:
     print(f"Notice on database pre-acceptance: {e}")
 
-# Check if model is already cached:
-cached_model = os.path.join(HF_DIR, "hub", "models--k2-fsa--OmniVoice")
-if os.path.exists(cached_model) and os.path.isdir(cached_model):
-    print("⚡ INSTANT BOOT: OmniVoice AI model weights found in cache! (0s download)")
-else:
-    print("⏳ Downloading OmniVoice AI weights (~2.4GB at high speed)...")
-    try:
-        from huggingface_hub import snapshot_download
-        snapshot_download(repo_id="k2-fsa/OmniVoice", local_files_only=False)
-        print("✅ OmniVoice AI weights successfully cached!")
-    except Exception as e:
-        print(f"Model download notice: {e}")
+# Check and clean corrupt or 0-byte JSON cache files if any exist
+if os.path.exists(HF_DIR):
+    for root, _, files in os.walk(HF_DIR):
+        for fname in files:
+            if fname.endswith(".json"):
+                fpath = os.path.join(root, fname)
+                try:
+                    if os.path.getsize(fpath) == 0:
+                        os.remove(fpath)
+                    else:
+                        with open(fpath, "r", encoding="utf-8") as jf:
+                            json.load(jf)
+                except Exception:
+                    try:
+                        os.remove(fpath)
+                        print(f"🧹 Removed corrupt cache file: {fpath}")
+                    except Exception:
+                        pass
+
+# Pre-download both OmniVoice weights and Higgs Audio tokenizer
+REQUIRED_MODELS = ["k2-fsa/OmniVoice", "eustlb/higgs-audio-v2-tokenizer"]
+for repo in REQUIRED_MODELS:
+    cached_path = os.path.join(HF_DIR, "hub", f"models--{repo.replace('/', '--')}")
+    if os.path.exists(cached_path) and os.path.isdir(cached_path):
+        print(f"⚡ INSTANT BOOT: {repo} weights found in cache! (0s download)")
+    else:
+        print(f"⏳ Caching {repo} weights (~high speed)...")
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(repo_id=repo, local_files_only=False)
+            print(f"✅ {repo} weights successfully cached!")
+        except Exception as e:
+            print(f"Notice caching {repo}: {e}")
 
 # ── 6. Launch VoiceStudio Backend (Port 3900) & Custom Studio UI (Port 5050) ───
 print("\\n🚀 6/6 Starting Voice Cloning Engine & Web UI...")

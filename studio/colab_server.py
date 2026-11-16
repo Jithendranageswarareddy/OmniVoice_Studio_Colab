@@ -182,6 +182,16 @@ def synthesize_chunk_request(
         resp = requests.post(f"{VOICESTUDIO_URL}/generate", data=data, timeout=300)
 
     if resp.status_code != 200:
+        log_snippet = ""
+        log_path = os.path.join(ROOT_WORKSPACE, "backend.log")
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as lf:
+                    log_snippet = "".join(lf.readlines()[-20:])
+            except Exception:
+                pass
+        if log_snippet:
+            print(f"\n[VoiceStudio Backend Log Output]:\n{log_snippet}\n")
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text}")
     return resp.content
 
@@ -453,6 +463,17 @@ def stream_file(filename: str):
         raise HTTPException(status_code=404, detail="File not found.")
     media_type = "audio/mpeg" if filename.endswith(".mp3") else "audio/wav"
     return FileResponse(file_path, media_type=media_type)
+
+@app.get("/api/logs")
+def view_backend_logs():
+    log_path = os.path.join(ROOT_WORKSPACE, "backend.log")
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as lf:
+                return {"logs": "".join(lf.readlines()[-100:])}
+        except Exception as e:
+            return {"logs": f"Error reading log: {e}"}
+    return {"logs": "Log file not found."}
 
 # Mount static files and index
 static_dir = os.path.join(BASE_DIR, "static")
