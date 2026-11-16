@@ -22,6 +22,7 @@
 | **ISS-013** | Model Assets / LFS | Git LFS pointer in `tokenizer.json` causing `JSONDecodeError` | 🟢 RESOLVED |
 | **ISS-014** | Prosody / Rhythm | Perceived fast/bursty cadence from ellipsis fragmentation | 🟢 RESOLVED |
 | **ISS-015** | Kaggle Notebook Sync | Notebook code out-of-sync & read-only LFS blob permissions | 🟢 RESOLVED |
+| **ISS-016** | Normalization & Prosody | Automatic Unicode NFC, Number-to-Words & Dual-Direction Chunk Merge | 🟢 RESOLVED |
 
 ---
 
@@ -312,6 +313,27 @@
   2. **Read-Only Blob & Symlink Handler:** Updated `verify_snapshot_integrity` to `chmod 0o666` and safely unlink symlinks before downloading the full 11.4MB `tokenizer.json`.
   3. **Multi-Location OmniVoice Patching:** Ensured `local_checkpoint = True` is patched across all `dist-packages` and repo locations.
 * **Status:** Resolved and synchronized across GitHub repository.
+
+---
+
+### [ISS-016] Production Telugu Text Normalization & Dual-Direction Chunk Merge
+* **Date Encountered:** VoiceStudio Production Pipeline Optimization
+* **Component:** `colab_server.py:normalize_telugu_tts_text`, `split_text_into_chunks`
+* **Symptom:**
+  Unnormalized numbers (e.g. `10`, `₹500`, `2026`), raw English acronyms (e.g. `AI`, `OTP`), and isolated short affirmations (e.g. `"అవును!!"`) caused pronunciation misfires, English accent leaks, or volume drops (-20.4 dBFS).
+* **Root Causes:**
+  1. **Unexpanded Digits:** Multilingual neural TTS models (OmniVoice) read raw ASCII digits with English pronunciation or garbled syllables.
+  2. **Isolated Micro-Chunks:** Short 1-word clauses followed by exclamation delimiters were isolated into separate diffusion calls, leading to a 5.5 dB volume drop on affirmations.
+  3. **Zero-Width Unicode Artifacts:** Invisible characters (`\u200b`, `\u200c`, `\u200d`, `\ufeff`) introduced random pauses or tokenization artifacts.
+* **Fix Applied:**
+  1. **Built-in Telugu Normalization Engine:** Integrated `normalize_telugu_tts_text()` in `colab_server.py`:
+     - Normalizes Unicode NFC and strips zero-width artifacts.
+     - Automatically expands numbers 0-99999999, currency (`₹`/`Rs.`), percentages (`%`), decimals (`4.5`), and ordinals (`1st`/`1వ`) into pure Telugu words.
+     - Phonetically transliterates common tech acronyms (`AI` -> `ఏ ఐ`, `OTP` -> `ఓ టీ పీ`, etc.).
+     - Converts symbols (`&` -> `మరియు`, `/` -> `లేదా`, `+` -> `ప్లస్`).
+     - Strips markdown formatting, HTML tags, and bracketed stage directions.
+  2. **Dual-Direction Micro-Chunk Merging:** Updated `split_text_into_chunks()` with forward and backward merging, ensuring short affirmations (like `"అవును!!"`) are merged with their adjacent sentence, delivering full vocal volume and natural cadence.
+* **Status:** Resolved and deployed to GitHub.
 
 ---
 

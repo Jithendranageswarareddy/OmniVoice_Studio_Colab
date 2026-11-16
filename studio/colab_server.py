@@ -16,6 +16,7 @@ import time
 import uuid
 import wave
 import base64
+import unicodedata
 from typing import Optional
 
 import requests
@@ -107,8 +108,116 @@ def ensure_voice_profile_registered():
         print(f"Notice: Profile register check: {e}")
     return None
 
+# ── Telugu Text Normalization Engine (Pre-TTS Rule Enforcement) ─────────────
+
+_TELUGU_ONES = {
+    0: "సున్నా", 1: "ఒకటి", 2: "రెండు", 3: "మూడు", 4: "నాలుగు",
+    5: "ఐదు", 6: "ఆరు", 7: "ఏడు", 8: "ఎనిమిది", 9: "తొమ్మిది",
+    10: "పది", 11: "పదకొండు", 12: "పన్నెండు", 13: "పదమూడు", 14: "పద్నాలుగు",
+    15: "పదిహేను", 16: "పదహారు", 17: "పదిహేడు", 18: "పద్దెనిమిది", 19: "పందొమ్మిది"
+}
+_TELUGU_TENS = {
+    2: "ఇరవై", 3: "ముప్పై", 4: "నలభై", 5: "యాభై",
+    6: "అరవై", 7: "డెబ్బై", 8: "ఎనభై", 9: "తొంబై"
+}
+
+def telugu_number_to_words(n: int) -> str:
+    """Converts integers (0 - 999,99,999) into pure Telugu words."""
+    if n in _TELUGU_ONES:
+        return _TELUGU_ONES[n]
+    if n < 100:
+        t = n // 10
+        rem = n % 10
+        return _TELUGU_TENS[t] if rem == 0 else f"{_TELUGU_TENS[t]} {_TELUGU_ONES[rem]}"
+    if n < 1000:
+        h = n // 100
+        rem = n % 100
+        prefix = "వంద" if h == 1 else f"{_TELUGU_ONES.get(h, '')} వందల"
+        return prefix if rem == 0 else f"{prefix} {telugu_number_to_words(rem)}"
+    if n < 100000:
+        th = n // 1000
+        rem = n % 1000
+        prefix = "వెయ్యి" if th == 1 else f"{telugu_number_to_words(th)} వేల"
+        return prefix if rem == 0 else f"{prefix} {telugu_number_to_words(rem)}"
+    if n < 10000000:
+        lk = n // 100000
+        rem = n % 100000
+        prefix = f"{telugu_number_to_words(lk)} లక్షల"
+        return prefix if rem == 0 else f"{prefix} {telugu_number_to_words(rem)}"
+    cr = n // 10000000
+    rem = n % 10000000
+    prefix = f"{telugu_number_to_words(cr)} కోట్ల"
+    return prefix if rem == 0 else f"{prefix} {telugu_number_to_words(rem)}"
+
+_ACRONYM_MAP = {
+    r"\bAI\b": "ఏ ఐ",
+    r"\bTTS\b": "టీ టీ ఎస్",
+    r"\bOTP\b": "ఓ టీ పీ",
+    r"\bKYC\b": "కే వై సీ",
+    r"\bURL\b": "యూ ఆర్ ఎల్",
+    r"\bAPI\b": "ఏ పీ ఐ",
+    r"\bGPU\b": "జీ పీ యూ",
+    r"\bCPU\b": "సీ పీ యూ",
+    r"\bApp\b": "యాప్",
+    r"\bApps\b": "యాప్స్",
+    r"\bYouTube\b": "యూట్యూబ్",
+    r"\bGoogle\b": "గూగుల్",
+    r"\bWhatsApp\b": "వాట్సాప్",
+    r"\bInstagram\b": "ఇన్‌స్టాగ్రామ్",
+    r"\bMobile\b": "మొబైల్",
+    r"\bPhone\b": "ఫోన్",
+    r"\bVideo\b": "వీడియో",
+    r"\bAudio\b": "ఆడియో",
+    r"\bSubitizing\b": "సబిటైజింగ్",
+    r"\bOnline\b": "ఆన్‌లైన్",
+    r"\bInternet\b": "ఇంటర్నెట్",
+    r"\bLink\b": "లింక్",
+    r"\bPassword\b": "పాస్‌వర్డ్",
+    r"\bNumber\b": "నంబర్",
+}
+
+def normalize_telugu_tts_text(text: str) -> str:
+    """Pre-processing pipeline: Normalizes Unicode NFC, expands numbers, symbols & acronyms."""
+    if not text:
+        return ""
+    # 1. Unicode NFC normalization
+    text = unicodedata.normalize("NFC", text)
+    # 2. Strip zero-width and control characters (\u200b, \u200c, \u200d, \ufeff)
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
+    # 3. Strip markdown syntax (*, #, _, ~, `, >)
+    text = re.sub(r"[*#_~`>]", "", text)
+    # 4. Remove bracketed stage directions like [laughs], (sighs)
+    text = re.sub(r"\[.*?\]", "", text)
+    text = re.sub(r"\((?:[a-zA-Z\s]+|నవ్వుతూ|నిట్టూరుస్తూ)\)", "", text)
+    # 5. Convert parentheses with content into commas for natural cadence
+    text = re.sub(r"\((.*?)\)", r", \1,", text)
+    # 6. Ordinals (1st -> మొదటి, 2nd -> రెండవ, etc.)
+    text = re.sub(r"(\d+)\s*(?:st|nd|rd|th|వ)\b", lambda m: "మొదటి" if m.group(1)=="1" else ("రెండవ" if m.group(1)=="2" else ("మూడవ" if m.group(1)=="3" else telugu_number_to_words(int(m.group(1)))+"వ")), text)
+    # 7. Currency (₹500 / Rs. 500 -> ఐదు వందల రూపాయలు)
+    text = re.sub(r"(?:₹|Rs\.?|INR)\s*(\d+)", lambda m: f"{telugu_number_to_words(int(m.group(1)))} రూపాయలు", text)
+    # 8. Percentage (50% -> యాభై శాతం)
+    text = re.sub(r"(\d+)\s*%", lambda m: f"{telugu_number_to_words(int(m.group(1)))} శాతం", text)
+    # 9. Decimals (4.5 -> నాలుగు పాయింట్ ఐదు)
+    text = re.sub(r"(\d+)\.(\d+)", lambda m: f"{telugu_number_to_words(int(m.group(1)))} పాయింట్ {telugu_number_to_words(int(m.group(2)))}", text)
+    # 10. Math operators & symbols
+    text = re.sub(r"\s*&\s*", " మరియు ", text)
+    text = re.sub(r"\s*\+\s*", " ప్లస్ ", text)
+    text = re.sub(r"\s*/\s*", " లేదా ", text)
+    text = re.sub(r"\s*=\s*", " ఈక్వల్ టు ", text)
+    # 11. Convert all remaining standalone digits (0 to 99999999)
+    text = re.sub(r"\b\d+\b", lambda m: telugu_number_to_words(int(m.group(0))), text)
+    # 12. English acronyms & loanwords
+    for pat, repl in _ACRONYM_MAP.items():
+        text = re.sub(pat, repl, text, flags=re.IGNORECASE)
+    # 13. Clean whitespace
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n", "\n\n", text)
+    return text.strip()
+
 def split_text_into_chunks(text: str, max_chars: int = 150) -> list[dict]:
     """Splits text into natural sentences with adaptive pause metadata and emotional tags."""
+    # Enforce strict normalization before chunking
+    text = normalize_telugu_tts_text(text)
     paragraphs = text.split("\n\n")
     all_chunks = []
 
@@ -167,9 +276,26 @@ def split_text_into_chunks(text: str, max_chars: int = 150) -> list[dict]:
                 if sub.strip():
                     refined.append(sub.strip())
 
-        # 5. Merge micro-chunks (<18 chars or <= 2 words) to prevent rapid staccato bursts
+        # 5. Dual-Direction Micro-Chunk Merging:
+        # Prevents 1-word or short affirmations (e.g. "అవును!!", "ఖచ్చితంగా!") from being spoken as isolated, weak utterances.
+        fwd_merged = []
+        i = 0
+        while i < len(refined):
+            c = refined[i].strip()
+            if not c:
+                i += 1
+                continue
+            # If current chunk is <= 2 words or < 15 chars and not the last chunk, merge forward
+            if (len(c.split()) <= 2 or len(c) < 15) and (i + 1 < len(refined)) and (len(c) + len(refined[i+1]) + 1 <= max_chars):
+                fwd_merged.append(c + " " + refined[i+1].strip())
+                i += 2
+            else:
+                fwd_merged.append(c)
+                i += 1
+
+        # Backward merge pass for any remaining trailing micro-fragments
         merged = []
-        for c in refined:
+        for c in fwd_merged:
             clean_c = c.strip()
             if not clean_c:
                 continue
