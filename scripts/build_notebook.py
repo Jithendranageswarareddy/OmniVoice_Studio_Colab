@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Generates the clean 2-cell Permanent_Voice_Studio_Setup.ipynb notebook
-with Google Drive Model Caching and Permanent License Gate Bypass.
+with Google Drive Model Caching, Permanent License Gate Bypass,
+and Sentence-Chunked High-Quality Voiceover Synthesis.
 """
 
 import json
@@ -222,9 +223,9 @@ print("=" * 68)
 
 CELL_2_CODE = """# ==============================================================================
 # 🎙️ OPTIONAL: Direct In-Notebook Voiceover Generator
-# (Paste your Telugu script below and run this cell to generate directly in Colab!)
+# Uses identical Sentence-Chunking & 180ms Breath Mastering as Customized Studio UI.
 # ==============================================================================
-import requests, os, wave, io, time, subprocess, importlib
+import requests, os, wave, io, time, subprocess, importlib, re
 import numpy as np
 import scipy.signal as signal
 
@@ -243,7 +244,7 @@ SCRIPT_TEXT = \"\"\"మీరు ఎప్పుడైనా సూపర్ మ
 కానీ అదే చోట ఏడు ఆపిల్స్ ఉంటే, వాటిని ఒక్కొక్కటిగా లెక్క పెట్టాల్సి రావచ్చు. 
 ఎందుకు ఇలా జరుగుతుంది? మన కళ్ళు ఒకేసారి ఎన్ని వస్తువులని గుర్తించగలవు? 
 అసలు లెక్కపెట్టకుండానే వస్తువుల సంఖ్యను గుర్తించడం సాధ్యమేనా? అవును.
-దీనికి సంబంధించిన ఒక ఆసక్తికరమైన స్కిల్ గురించి ఇప్పుడు తెలుసుకుందాం... దాని పేరు subitizing!\"\"\"
+దీనికి సంబంధించిన ఒక ఆసక్తికరమైన స్కిల్ గురించి ఇప్పుడు తెలుసుకుందాం... దాని పేరు సబిటైజింగ్!\"\"\"
 
 # ── 2. Identify Voice Profile ─────────────────────────────────────────────────
 def get_voice_profile():
@@ -263,35 +264,89 @@ def get_voice_profile():
 profile_id, profile_name = get_voice_profile()
 print(f"🎙️ Using Cloned Voice: {profile_name} (ID: {profile_id})")
 
-# ── 3. Ultra-Fast GPU Synthesis ───────────────────────────────────────────────
-payload = {
-    "text": SCRIPT_TEXT.strip(),
-    "language": "Telugu",
-    "profile_id": profile_id,
-    "num_step": 8,           # Studio Realism (8 steps, no phase noise)
-    "guidance_scale": 1.3,   # Crisp Telugu plosives without metallic buzz
-    "speed": 1.0,            # Natural conversational speed
-    "effect_preset": "raw",  # Pure acoustic vocal timbre
-    "wav_bits": "16",
-    "stream": "false"
-}
+# ── 3. Chunked GPU Synthesis (Prevents Dropped Words & Hallucinations) ─────────
+def split_into_chunks(text: str, max_chars: int = 150):
+    raw_sentences = re.split(r'([.?!।\\n]+)', text)
+    chunks = []
+    current = ""
+    for s in raw_sentences:
+        if not s:
+            continue
+        if re.match(r'^[.?!।\\n]+$', s):
+            current += s
+            if len(current.strip()) > 0:
+                chunks.append(current.strip())
+                current = ""
+        else:
+            if current:
+                chunks.append(current.strip())
+            current = s
+    if current.strip():
+        chunks.append(current.strip())
+    refined = []
+    for s in chunks:
+        if len(s) <= max_chars:
+            refined.append(s)
+        else:
+            clauses = re.split(r'([,;:\\-–])', s)
+            sub = ""
+            for cl in clauses:
+                if len(sub) + len(cl) <= max_chars:
+                    sub += cl
+                else:
+                    if sub.strip():
+                        refined.append(sub.strip())
+                    sub = cl
+            if sub.strip():
+                refined.append(sub.strip())
+    return [c for c in refined if len(c.strip()) > 0]
 
+chunks = split_into_chunks(SCRIPT_TEXT.strip())
+print(f"✂️ Split script into {len(chunks)} natural sentences for crisp articulation.")
+
+wav_parts = []
 t0 = time.time()
-print(f"🚀 Generating voiceover on T4 GPU...")
-res = requests.post(f"{BASE_URL}/generate", data=payload, timeout=300)
-if res.status_code != 200:
-    raise RuntimeError(f"Generation error {res.status_code}: {res.text}")
+for idx, chunk in enumerate(chunks):
+    print(f"🚀 [{idx+1}/{len(chunks)}] Synthesizing on GPU: \\\"{chunk[:35]}...\\\"")
+    payload = {
+        "text": chunk,
+        "language": "Telugu",
+        "profile_id": profile_id,
+        "num_step": 8,           # Studio Realism (8 steps, no phase noise)
+        "guidance_scale": 1.3,   # Crisp Telugu plosives without metallic buzz
+        "speed": 1.0,            # Natural conversational speed
+        "effect_preset": "raw",  # Pure acoustic vocal timbre
+        "wav_bits": "16",
+        "stream": "false"
+    }
+    res = requests.post(f"{BASE_URL}/generate", data=payload, timeout=300)
+    if res.status_code != 200:
+        raise RuntimeError(f"Generation error {res.status_code}: {res.text}")
+    wav_parts.append(res.content)
 
-raw_wav_bytes = res.content
 gen_duration = time.time() - t0
-print(f"✅ Neural generation completed in {gen_duration:.1f} seconds!")
+print(f"✅ All {len(chunks)} sentences synthesized in {gen_duration:.1f}s!")
 
-# ── 4. Studio Presence Air Polish & Mastering ────────────────────────────────
-with wave.open(io.BytesIO(raw_wav_bytes), "rb") as wf:
-    params = wf.getparams()
-    audio = np.frombuffer(wf.readframes(params.nframes), dtype=np.int16).astype(np.float32) / 32768.0
+# ── 4. Natural 180ms Breath Concatenation & Mastering ──────────────────────────
+first_params = None
+all_frames = []
+for w_bytes in wav_parts:
+    if not w_bytes or len(w_bytes) < 44:
+        continue
+    with wave.open(io.BytesIO(w_bytes), "rb") as wf:
+        params = wf.getparams()
+        if first_params is None:
+            first_params = params
+        all_frames.append(wf.readframes(params.nframes))
+        # 180ms natural human breathing pause between thoughts
+        silence_samples = int(params.framerate * 0.18)
+        all_frames.append(b'\\x00\\x00' * silence_samples * params.nchannels)
 
-sr = params.framerate
+raw_audio_bytes = b"".join(all_frames)
+
+# Studio presence EQ (+1.8dB high-shelf above 4.5kHz)
+audio = np.frombuffer(raw_audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+sr = first_params.framerate
 gain_db = 1.8
 A = 10.0 ** (gain_db / 40.0)
 w0 = 2.0 * np.pi * 4500.0 / sr
@@ -309,7 +364,6 @@ b = np.array([b0, b1, b2]) / a0
 a = np.array([a0, a1, a2]) / a0
 polished = signal.lfilter(b, a, audio)
 polished = np.clip(polished, -0.98, 0.98)
-
 polished_bytes = (polished * 32767.0).astype(np.int16).tobytes()
 
 out_dir = "/content/cloned_takes"
@@ -318,9 +372,9 @@ wav_out = os.path.join(out_dir, "studio_master.wav")
 mp3_out = os.path.join(out_dir, "studio_master.mp3")
 
 with wave.open(wav_out, "wb") as out_wf:
-    out_wf.setnchannels(params.nchannels)
-    out_wf.setsampwidth(params.sampwidth)
-    out_wf.setframerate(params.framerate)
+    out_wf.setnchannels(first_params.nchannels)
+    out_wf.setsampwidth(first_params.sampwidth)
+    out_wf.setframerate(first_params.framerate)
     out_wf.writeframes(polished_bytes)
 
 # Master to broadcast standard -16 LUFS MP3
@@ -385,7 +439,7 @@ notebook = {
             "metadata": {"id": "step_2_md"},
             "source": [
                 "### 🎙️ Cell 2 (Optional): Direct In-Notebook Voiceover Generator\n",
-                "Paste your Telugu script and generate directly inside Colab without opening the web UI.\n"
+                "Paste your Telugu script and generate directly inside Colab with sentence-chunking and studio mastering.\n"
             ]
         },
         {
