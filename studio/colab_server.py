@@ -33,6 +33,10 @@ INPUT_DIR = os.path.join(ROOT_WORKSPACE, "input")
 VOICESTUDIO_URL = "http://127.0.0.1:3900"
 FFMPEG_BIN = "ffmpeg"
 
+# Enforce offline HuggingFace environment to avoid Cloudflare/429 JSONDecodeError
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(INPUT_DIR, exist_ok=True)
 
@@ -187,12 +191,14 @@ def synthesize_chunk_request(
         if os.path.exists(log_path):
             try:
                 with open(log_path, "r", encoding="utf-8", errors="ignore") as lf:
-                    log_snippet = "".join(lf.readlines()[-20:])
+                    log_snippet = "".join(lf.readlines()[-30:])
             except Exception:
                 pass
+        err_msg = f"HTTP {resp.status_code}: {resp.text}"
         if log_snippet:
             print(f"\n[VoiceStudio Backend Log Output]:\n{log_snippet}\n")
-        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text}")
+            err_msg += f"\nBackend Details:\n{log_snippet}"
+        raise RuntimeError(err_msg)
     return resp.content
 
 def concatenate_and_master(wav_bytes_list: list[bytes], base_name: str) -> dict:

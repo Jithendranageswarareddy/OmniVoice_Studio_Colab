@@ -172,20 +172,65 @@ if os.path.exists(HF_DIR):
                     except Exception:
                         pass
 
-# Pre-download both OmniVoice weights and Higgs Audio tokenizer
-REQUIRED_MODELS = ["k2-fsa/OmniVoice", "eustlb/higgs-audio-v2-tokenizer"]
-for repo in REQUIRED_MODELS:
-    cached_path = os.path.join(HF_DIR, "hub", f"models--{repo.replace('/', '--')}")
-    if os.path.exists(cached_path) and os.path.isdir(cached_path):
-        print(f"⚡ INSTANT BOOT: {repo} weights found in cache! (0s download)")
-    else:
-        print(f"⏳ Caching {repo} weights (~high speed)...")
+# Pre-download and rigorously verify both OmniVoice weights and Higgs Audio tokenizer
+def resolve_and_verify_model(repo_id: str, hf_dir: str) -> str:
+    from huggingface_hub import snapshot_download
+    # 1. Try local cache verification first (prevents redundant downloads)
+    try:
+        snap = snapshot_download(repo_id=repo_id, local_files_only=True)
+        has_cfg = os.path.exists(os.path.join(snap, "config.json")) or os.path.exists(os.path.join(snap, "preprocessor_config.json"))
+        has_weights = any(f.endswith((".safetensors", ".bin", ".pt")) for f in os.listdir(snap))
+        if has_cfg and has_weights:
+            print(f"⚡ INSTANT BOOT: {repo_id} weights verified in cache! (0s download)")
+            return snap
+        print(f"⚠️ Cache incomplete for {repo_id}, downloading missing files...")
+    except Exception:
+        print(f"⏳ Caching {repo_id} weights from HuggingFace (~high speed)...")
+    
+    # 2. Download / repair complete snapshot
+    snap = snapshot_download(repo_id=repo_id, local_files_only=False)
+    print(f"✅ {repo_id} weights successfully cached at: {snap}")
+    return snap
+
+omni_snap = resolve_and_verify_model("k2-fsa/OmniVoice", HF_DIR)
+higgs_snap = resolve_and_verify_model("eustlb/higgs-audio-v2-tokenizer", HF_DIR)
+
+# Ensure audio_tokenizer is present in omni_snap
+audio_tok_target = os.path.join(omni_snap, "audio_tokenizer")
+if not os.path.isdir(audio_tok_target) and higgs_snap and os.path.isdir(higgs_snap):
+    print("🔗 Linking audio tokenizer into OmniVoice snapshot...")
+    try:
+        os.symlink(higgs_snap, audio_tok_target)
+    except Exception:
         try:
-            from huggingface_hub import snapshot_download
-            snapshot_download(repo_id=repo, local_files_only=False)
-            print(f"✅ {repo} weights successfully cached!")
+            shutil.copytree(higgs_snap, audio_tok_target, dirs_exist_ok=True)
         except Exception as e:
-            print(f"Notice caching {repo}: {e}")
+            print(f"Notice linking audio_tokenizer: {e}")
+
+# Patch 3: Force offline & local_files_only in VoiceStudio to eliminate HuggingFace JSONDecodeError/429
+mm_py = os.path.join(VOICESTUDIO_DIR, "backend", "services", "model_manager.py")
+if os.path.exists(mm_py):
+    with open(mm_py, "r", encoding="utf-8") as f:
+        mm_src = f.read()
+    if "load_asr=False,\n            )" in mm_src:
+        mm_src = mm_src.replace(
+            "load_asr=False,\n            )",
+            "load_asr=False, local_files_only=True,\n            )"
+        )
+        with open(mm_py, "w", encoding="utf-8") as f:
+            f.write(mm_src)
+
+ov_py = os.path.join(VOICESTUDIO_DIR, "omnivoice", "models", "omnivoice.py")
+if os.path.exists(ov_py):
+    with open(ov_py, "r", encoding="utf-8") as f:
+        ov_src = f.read()
+    ov_src = ov_src.replace(
+        "local_checkpoint = os.path.isdir(pretrained_model_name_or_path)",
+        "local_checkpoint = True"
+    )
+    with open(ov_py, "w", encoding="utf-8") as f:
+        f.write(ov_src)
+print("🛡️ VoiceStudio patched: Offline local loading enforced (HuggingFace JSONDecodeError eliminated).")
 
 # ── 6. Launch VoiceStudio Backend (Port 3900) & Custom Studio UI (Port 5050) ───
 print("\n🚀 6/6 Starting Voice Cloning Engine & Web UI...")
@@ -196,6 +241,10 @@ env = os.environ.copy()
 env["OMNIVOICE_SERVER_MODE"] = "1"
 env["OMNIVOICE_DATA_DIR"] = DATA_DIR
 env["PYTHONUNBUFFERED"] = "1"
+env["HF_HOME"] = HF_DIR
+env["HF_HUB_OFFLINE"] = "1"
+env["TRANSFORMERS_OFFLINE"] = "1"
+env["OMNIVOICE_MODEL"] = omni_snap
 
 backend_log = open(os.path.join(ROOT_WORKSPACE, "backend.log"), "ab")
 subprocess.Popen(

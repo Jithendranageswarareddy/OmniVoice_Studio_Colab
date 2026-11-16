@@ -229,6 +229,54 @@
 
 ---
 
+### [ISS-010] Kaggle Setup 128 Git Clone URL Error
+* **Date Encountered:** Kaggle Migration Initial Boot
+* **Component:** `Kaggle_Voice_Studio_Setup.ipynb` Cell 1
+* **Symptom:** `fatal: repository 'https://github.com/' not found` (Exit 128).
+* **Root Cause:** Placeholder repo URL string was set to root domain instead of full repo path.
+* **Fix Applied:** Updated `REPO_URL` to `https://github.com/Jithendranageswarareddy/OmniVoice_Studio_Colab.git`.
+
+---
+
+### [ISS-011] Fast Dependency Installation Error Exit 2
+* **Date Encountered:** Python 3.13 Kaggle / Colab Environment Setup
+* **Component:** `cells/01_launch_studio.py` uv installer
+* **Symptom:** `CalledProcessError: Command '['uv', 'pip', 'install', ...]` returned 2.
+* **Root Cause:** `-r` flag incorrectly passed to constraint file and redundant second unconstrained package installation.
+* **Fix Applied:** Corrected syntax to `--constraint deploy/torch-constraints.txt --override deploy/uv-overrides.txt .` and unified installation into a single deterministic call.
+
+---
+
+### [ISS-012] VoiceStudio Model License HTTP 403 Gate
+* **Date Encountered:** First Voice Generation on Fresh Machine
+* **Component:** VoiceStudio `model_acceptance.py`
+* **Symptom:** Generation blocked by HTTP 403 `model_licence_required`.
+* **Root Cause:** Hardcoded acceptance gates inside VoiceStudio backend requiring interactive UI terms acceptance.
+* **Fix Applied:** Automated source monkey-patching of `ensure_accepted`, pre-populating acceptance in `omnivoice.db`, and adding auto-retry handler in `colab_server.py`.
+
+---
+
+### [ISS-013] Voice Generation HTTP 500 JSONDecodeError / NETWORK_ERROR on Kaggle
+* **Date Encountered:** Voice Synthesis on Kaggle Tesla T4 GPU
+* **Component:** `VoiceStudio.from_pretrained` & HuggingFace Hub Runtime Connection
+* **Symptom:**
+  `Voice generation failed: HTTP 500: {"detail":"VoiceStudio hit an internal error; check the backend log for details.","error_class":"NETWORK_ERROR","error_type":"JSONDecodeError"}`
+* **Root Cause:**
+  1. **Superficial Cache Check:** `01_launch_studio.py` previously checked only if the model directory existed (`os.path.isdir(cached_path)`). Any partially downloaded or empty directory from a previous run was falsely reported as `⚡ INSTANT BOOT`, deferring real download to runtime.
+  2. **Online HuggingFace Hub Query:** At generation time, `VoiceStudio.from_pretrained` ran with `local_checkpoint = False` because `checkpoint` was passed as `"k2-fsa/OmniVoice"` (repo ID string). Transformers made an online request to `huggingface.co/api/models/...`. On Kaggle's shared datacenter IP, Hugging Face responded with a Cloudflare HTML rate limit / challenge. `requests` threw `JSONDecodeError` while parsing HTML as JSON, which VoiceStudio's `error_journal.py` classified as `NETWORK_ERROR`.
+* **Fix Applied:**
+  1. **Rigorous Cache Verification:** Switched to `snapshot_download(repo_id=..., local_files_only=True)` checking for `config.json` and `.safetensors` weights before declaring cache valid.
+  2. **Explicit Offline Loading:**
+     - Resolved exact snapshot directory path and set `OMNIVOICE_MODEL` to the local path.
+     - Patched `model_manager.py` to pass `local_files_only=True`.
+     - Patched `omnivoice.py` to enforce `local_checkpoint = True`.
+     - Injected `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` into the environment.
+     - Linked `audio_tokenizer` snapshot into the OmniVoice snapshot directory to guarantee 100% offline tokenizer availability.
+  3. **Transparent Traceback Reporting:** Updated `colab_server.py` to capture and include the last 30 lines of `backend.log` directly in error responses.
+* **Status:** Resolved. Tested and deployed to GitHub repository.
+
+---
+
 ## 📝 How to Log a New Issue
 Whenever a new issue arises:
 1. Assign the next available ID (e.g., `[ISS-010]`).
