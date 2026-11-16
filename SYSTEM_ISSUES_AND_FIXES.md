@@ -23,6 +23,7 @@
 | **ISS-014** | Prosody / Rhythm | Perceived fast/bursty cadence from ellipsis fragmentation | 🟢 RESOLVED |
 | **ISS-015** | Kaggle Notebook Sync | Notebook code out-of-sync & read-only LFS blob permissions | 🟢 RESOLVED |
 | **ISS-016** | Normalization & Prosody | Automatic Unicode NFC, Number-to-Words & Dual-Direction Chunk Merge | 🟢 RESOLVED |
+| **ISS-017** | Long-Form Continuity | Dangling Comma Line Merging, Metadata Stripping & Chapter Pause | 🟢 RESOLVED |
 
 ---
 
@@ -334,6 +335,23 @@
      - Strips markdown formatting, HTML tags, and bracketed stage directions.
   2. **Dual-Direction Micro-Chunk Merging:** Updated `split_text_into_chunks()` with forward and backward merging, ensuring short affirmations (like `"అవును!!"`) are merged with their adjacent sentence, delivering full vocal volume and natural cadence.
 * **Status:** Resolved and deployed to GitHub.
+
+---
+
+### [ISS-017] Long-Form Video Continuity: Dangling Comma Line Merging & Chapter Pauses
+* **Date Encountered:** 9.5-Minute Long-Form Educational Video Take
+* **Component:** `colab_server.py:split_text_into_chunks`, `normalize_telugu_tts_text`
+* **Symptom:**
+  In a 9m 31s narration, short lines ending in dangling commas (`ఎందుకు ఇలా జరుగుతుందో,`, `గుర్తించగలవో,`) were fractured into isolated paragraphs, producing stuttering, glottal stops, and syllable slurring. Scriptwriter metadata (`2. Core Explanation`, `830 words • ~6m`) leaked into processing, and chapter transitions lacked separation.
+* **Root Causes:**
+  1. **Line-by-Line Double Newlines:** Script formatting with blank lines after every short sub-clause triggered `text.split("\n\n")`, treating incomplete participle phrases as isolated sentences.
+  2. **Metadata Lines:** Non-spoken script outlines leaked into text normalization.
+  3. **Chapter Boundary Invisibility:** Part headers (`పార్ట్ వన్, సబిటైజింగ్...`) were given standard 0.20s sentence pauses rather than chapter separation.
+* **Fix Applied:**
+  1. **Dangling Comma & Subordinate Clause Auto-Merge:** Pre-processor automatically merges lines ending with commas (`,`), semicolons, or dashes across newlines into complete, flowing sentence thoughts before chunking.
+  2. **Scriptwriter Metadata Auto-Stripper:** Automatically detects and purges lines containing `word counts` (`830 words • ~6m`), `Core Explanation`, `Key Takeaway`, `Outro & CTA`, etc.
+  3. **Chapter Heading Detection & 0.65s Pause:** Automatically detects `పార్ట్ ` / `Part ` headings and allocates a dramatic 650ms chapter pause with authoritative guidance.
+* **Status:** Resolved and deployed to GitHub repository.
 
 ---
 

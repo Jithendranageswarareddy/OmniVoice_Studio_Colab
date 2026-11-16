@@ -182,34 +182,41 @@ def normalize_telugu_tts_text(text: str) -> str:
         return ""
     # 1. Unicode NFC normalization
     text = unicodedata.normalize("NFC", text)
-    # 2. Strip zero-width and control characters (\u200b, \u200c, \u200d, \ufeff)
+    # 2. Strip scriptwriter metadata / timing / section info lines
+    text = re.sub(r'(?i)^\s*(?:\d+\.\s*)?(?:core explanation|main teaching|key takeaway|outro|intro|hook|call to action|cta|summary|walkthrough|closing prompt).*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+\s*words\s*•\s*~?\d+[ms].*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*First\s*\d+-\d+[s].*$', '', text, flags=re.MULTILINE)
+    # 3. Strip zero-width and control characters (\u200b, \u200c, \u200d, \ufeff)
     text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
-    # 3. Strip markdown syntax (*, #, _, ~, `, >)
+    # 4. Strip markdown syntax (*, #, _, ~, `, >)
     text = re.sub(r"[*#_~`>]", "", text)
-    # 4. Remove bracketed stage directions like [laughs], (sighs)
+    # 5. Remove bracketed stage directions like [laughs], (sighs)
     text = re.sub(r"\[.*?\]", "", text)
     text = re.sub(r"\((?:[a-zA-Z\s]+|నవ్వుతూ|నిట్టూరుస్తూ)\)", "", text)
-    # 5. Convert parentheses with content into commas for natural cadence
+    # 6. Convert parentheses with content into commas for natural cadence
     text = re.sub(r"\((.*?)\)", r", \1,", text)
-    # 6. Ordinals (1st -> మొదటి, 2nd -> రెండవ, etc.)
+    # 7. Merge dangling lines ending in comma or incomplete clause across newlines
+    text = re.sub(r'([,;:\-–])\s*\n+', r'\1 ', text)
+    text = re.sub(r'([^.?!।…\n])\s*\n\s*\n', r'\1, ', text)
+    # 8. Ordinals (1st -> మొదటి, 2nd -> రెండవ, etc.)
     text = re.sub(r"(\d+)\s*(?:st|nd|rd|th|వ)\b", lambda m: "మొదటి" if m.group(1)=="1" else ("రెండవ" if m.group(1)=="2" else ("మూడవ" if m.group(1)=="3" else telugu_number_to_words(int(m.group(1)))+"వ")), text)
-    # 7. Currency (₹500 / Rs. 500 -> ఐదు వందల రూపాయలు)
+    # 9. Currency (₹500 / Rs. 500 -> ఐదు వందల రూపాయలు)
     text = re.sub(r"(?:₹|Rs\.?|INR)\s*(\d+)", lambda m: f"{telugu_number_to_words(int(m.group(1)))} రూపాయలు", text)
-    # 8. Percentage (50% -> యాభై శాతం)
+    # 10. Percentage (50% -> యాభై శాతం)
     text = re.sub(r"(\d+)\s*%", lambda m: f"{telugu_number_to_words(int(m.group(1)))} శాతం", text)
-    # 9. Decimals (4.5 -> నాలుగు పాయింట్ ఐదు)
+    # 11. Decimals (4.5 -> నాలుగు పాయింట్ ఐదు)
     text = re.sub(r"(\d+)\.(\d+)", lambda m: f"{telugu_number_to_words(int(m.group(1)))} పాయింట్ {telugu_number_to_words(int(m.group(2)))}", text)
-    # 10. Math operators & symbols
+    # 12. Math operators & symbols
     text = re.sub(r"\s*&\s*", " మరియు ", text)
     text = re.sub(r"\s*\+\s*", " ప్లస్ ", text)
     text = re.sub(r"\s*/\s*", " లేదా ", text)
     text = re.sub(r"\s*=\s*", " ఈక్వల్ టు ", text)
-    # 11. Convert all remaining standalone digits (0 to 99999999)
+    # 13. Convert all remaining standalone digits (0 to 99999999)
     text = re.sub(r"\b\d+\b", lambda m: telugu_number_to_words(int(m.group(0))), text)
-    # 12. English acronyms & loanwords
+    # 14. English acronyms & loanwords
     for pat, repl in _ACRONYM_MAP.items():
         text = re.sub(pat, repl, text, flags=re.IGNORECASE)
-    # 13. Clean whitespace
+    # 15. Clean whitespace
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n\s*\n", "\n\n", text)
     return text.strip()
@@ -307,7 +314,10 @@ def split_text_into_chunks(text: str, max_chars: int = 150) -> list[dict]:
         # 6. Assign adaptive context-aware pause duration for long-form educational videos
         for s_idx, c in enumerate(merged):
             is_last = (s_idx == len(merged) - 1)
-            if is_last:
+            is_chapter_heading = bool(re.match(r'^(?:పార్ట్\s+|part\s+|అధ్యాయం\s+)[^\.\?!]+[\.\?!,]*$', c, re.IGNORECASE))
+            if is_chapter_heading:
+                pause = 0.65  # Clear 650ms chapter pause
+            elif is_last:
                 pause = 0.45  # Paragraph / Major concept transition pause
             elif "?" in c:
                 pause = 0.32  # Inquisitive question reflection gap
@@ -323,6 +333,7 @@ def split_text_into_chunks(text: str, max_chars: int = 150) -> list[dict]:
                 "pause": pause,
                 "is_question": ("?" in c),
                 "is_exclamation": ("!" in c),
+                "is_chapter": is_chapter_heading,
             })
 
     return all_chunks
@@ -508,6 +519,9 @@ def run_synthesis_job(
                 elif chunk_info.get("is_exclamation"):
                     chunk_guidance = min(1.65, guidance + 0.18)
                     chunk_speed = speed * 1.02
+                elif chunk_info.get("is_chapter"):
+                    chunk_guidance = min(1.65, guidance + 0.15)
+                    chunk_speed = speed * 0.95
 
             jobs[job_id]["current_chunk"] = idx + 1
             jobs[job_id]["message"] = f"Synthesizing sentence {idx + 1} of {len(chunks)} on GPU..."
