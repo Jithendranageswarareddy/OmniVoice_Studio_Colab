@@ -86,9 +86,15 @@ if not shutil.which("uv"):
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "uv"], check=True)
 
 subprocess.run([
+    "uv", "pip", "install", "--system", "--no-cache",
+    "--constraint", "deploy/torch-constraints.txt",
+    "--constraint", "deploy/security-constraints.txt",
+    "--override", "deploy/uv-overrides.txt",
+    "."
+], cwd=VOICESTUDIO_DIR, check=True)
+
+subprocess.run([
     "uv", "pip", "install", "--system",
-    "-r", f"{VOICESTUDIO_DIR}/deploy/torch-constraints.txt",
-    "-e", VOICESTUDIO_DIR,
     "fastapi", "uvicorn", "requests", "soundfile", "scipy", "huggingface_hub"
 ], check=True)
 
