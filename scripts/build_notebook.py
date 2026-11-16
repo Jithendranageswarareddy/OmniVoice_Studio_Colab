@@ -1,42 +1,59 @@
 #!/usr/bin/env python3
 """
-Generates the clean 2-cell Permanent_Voice_Studio_Setup.ipynb notebook
-with Google Drive Model Caching, Permanent License Gate Bypass,
-and Sentence-Chunked High-Quality Voiceover Synthesis.
+Generates universal notebooks for both Google Colab and Kaggle (30h/week free GPU).
+Supports Google Drive caching on Colab, native Kaggle paths (/kaggle/working),
+permanent 403 license bypass, and sentence-chunked high-quality Telugu voiceovers.
 """
 
 import json
 import os
 
-NOTEBOOK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Permanent_Voice_Studio_Setup.ipynb")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+COLAB_NOTEBOOK_PATH = os.path.join(BASE_DIR, "Permanent_Voice_Studio_Setup.ipynb")
+KAGGLE_NOTEBOOK_PATH = os.path.join(BASE_DIR, "Kaggle_Voice_Studio_Setup.ipynb")
 
 CELL_1_CODE = """# ==============================================================================
 # 🚀 1-CLICK LAUNCH: Dedicated Voice Cloning Studio (GPU Accelerated)
-# 💾 Google Drive Persistent Cache: First run caches models; future runs boot in seconds!
+# 🌐 Universal Platform: Runs natively on Kaggle (30h free GPU/wk) & Google Colab
 # 🛡️ Auto-License Bypass: Permanently solves HTTP 403 (model_licence_required)
 # 🎙️ Pre-calibrated Profile: P_J_N_Reddy_RealVoice (8.35s Telugu audio)
 # ==============================================================================
 import os, sys, time, shutil, subprocess, json, sqlite3, base64
 
+IS_KAGGLE = os.path.exists("/kaggle/working")
+ROOT_WORKSPACE = "/kaggle/working" if IS_KAGGLE else "/content"
+platform_name = "Kaggle (30h Free GPU)" if IS_KAGGLE else "Google Colab"
+
+print(f"🚀 Running on: {platform_name}")
 print("🔍 1/6 Checking GPU accelerator...")
 try:
     import torch
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
         vram = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        print(f"✅ T4 GPU Active: {gpu_name} ({vram:.1f} GB VRAM)")
+        print(f"✅ GPU Active: {gpu_name} ({vram:.1f} GB VRAM)")
     else:
-        print("⚠️ WARNING: Running on CPU! Select Runtime > Change runtime type > T4 GPU > Save.")
+        if IS_KAGGLE:
+            print("⚠️ WARNING: Running on CPU! On Kaggle, go to right sidebar -> Settings -> Accelerator -> select GPU T4 x2 or P100!")
+        else:
+            print("⚠️ WARNING: Running on CPU! Select Runtime > Change runtime type > T4 GPU > Save.")
 except Exception as e:
     print(f"Note: {e}")
 
-# ── 2. Link Google Drive Cache (Instant Startup for Future Runs) ───────────────
-print("\\n💾 2/6 Linking Google Drive Persistent Model Cache...")
+# Ensure /content compatibility symlink if running on Kaggle
+if IS_KAGGLE and not os.path.exists("/content"):
+    try:
+        os.symlink("/kaggle/working", "/content")
+    except Exception:
+        pass
+
+# ── 2. Storage & Cache Setup ──────────────────────────────────────────────────
+print("\\n💾 2/6 Configuring storage & model cache...")
 USE_DRIVE = True
 CACHE_BASE = "/content/drive/MyDrive/VoiceStudio_Cache"
 DRIVE_MOUNTED = False
 
-if USE_DRIVE:
+if USE_DRIVE and not IS_KAGGLE:
     try:
         from google.colab import drive
         drive.mount('/content/drive')
@@ -44,7 +61,7 @@ if USE_DRIVE:
         DRIVE_MOUNTED = True
         print(f"✅ Google Drive Cache Connected: {CACHE_BASE}")
     except Exception as e:
-        print(f"ℹ️ Google Drive not mounted, using local VM storage ({e})")
+        print(f"ℹ️ Google Drive not mounted, using local storage ({e})")
 
 if DRIVE_MOUNTED:
     HF_DIR = os.path.join(CACHE_BASE, "huggingface")
@@ -52,10 +69,10 @@ if DRIVE_MOUNTED:
     DATA_DIR = os.path.join(CACHE_BASE, "omnivoice_data")
     UV_CACHE = os.path.join(CACHE_BASE, "uv_cache")
 else:
-    HF_DIR = "/content/cache/huggingface"
-    TORCH_DIR = "/content/cache/torch"
-    DATA_DIR = "/content/omnivoice_data"
-    UV_CACHE = "/root/.cache/uv"
+    HF_DIR = os.path.join(ROOT_WORKSPACE, "cache", "huggingface")
+    TORCH_DIR = os.path.join(ROOT_WORKSPACE, "cache", "torch")
+    DATA_DIR = os.path.join(ROOT_WORKSPACE, "omnivoice_data")
+    UV_CACHE = os.path.join(ROOT_WORKSPACE, "cache", "uv")
 
 for d in [HF_DIR, TORCH_DIR, DATA_DIR, UV_CACHE]:
     os.makedirs(d, exist_ok=True)
@@ -69,11 +86,12 @@ os.environ["PYTHONUNBUFFERED"] = "1"
 
 # ── 3. Fetch Repositories ─────────────────────────────────────────────────────
 print("\\n📦 3/6 Fetching Studio Repositories...")
-STUDIO_DIR = "/content/colab-voice-studio"
-VOICESTUDIO_DIR = "/content/VoiceStudio"
+STUDIO_DIR = os.path.join(ROOT_WORKSPACE, "colab-voice-studio")
+VOICESTUDIO_DIR = os.path.join(ROOT_WORKSPACE, "VoiceStudio")
 
+REPO_URL = "https://github.com/Jithendranageswarareddy/OmniVoice_Studio_Colab.git"
 if not os.path.isdir(STUDIO_DIR):
-    subprocess.run(["git", "clone", "--depth", "1", "https://github.com/Jithendranageswarareddy/OmniVoice_Studio_Colab.git", STUDIO_DIR], check=True)
+    subprocess.run(["git", "clone", "--depth", "1", REPO_URL, STUDIO_DIR], check=True)
 else:
     subprocess.run(["git", "-C", STUDIO_DIR, "pull", "--rebase"], capture_output=True)
 
@@ -99,8 +117,8 @@ print("\\n🛡️ 5/6 Patching license gates & preparing AI model weights...")
 
 # Patch 1: Remove HTTP 403 license gates in VoiceStudio code directly
 for py_file in [
-    f"{VOICESTUDIO_DIR}/backend/services/model_acceptance.py",
-    f"{VOICESTUDIO_DIR}/backend/services/tts_backend.py"
+    os.path.join(VOICESTUDIO_DIR, "backend", "services", "model_acceptance.py"),
+    os.path.join(VOICESTUDIO_DIR, "backend", "services", "tts_backend.py")
 ]:
     if os.path.exists(py_file):
         with open(py_file, "r", encoding="utf-8") as f:
@@ -114,8 +132,9 @@ print("✅ License checks bypassed permanently (HTTP 403 will never occur).")
 
 # Patch 2: Pre-accept in settings store database
 try:
-    if f"{VOICESTUDIO_DIR}/backend" not in sys.path:
-        sys.path.insert(0, f"{VOICESTUDIO_DIR}/backend")
+    backend_dir = os.path.join(VOICESTUDIO_DIR, "backend")
+    if backend_dir not in sys.path:
+        sys.path.insert(0, backend_dir)
     from services import model_acceptance
     reg = model_acceptance._registry()
     for m in reg.get("models", []):
@@ -130,16 +149,16 @@ try:
 except Exception as e:
     print(f"Notice on database pre-acceptance: {e}")
 
-# Check if model is already cached in Google Drive:
+# Check if model is already cached:
 cached_model = os.path.join(HF_DIR, "hub", "models--k2-fsa--OmniVoice")
 if os.path.exists(cached_model) and os.path.isdir(cached_model):
-    print("⚡ INSTANT BOOT: OmniVoice AI model weights found in Google Drive cache! (0s download)")
+    print("⚡ INSTANT BOOT: OmniVoice AI model weights found in cache! (0s download)")
 else:
-    print("⏳ First-time download: Caching OmniVoice AI weights into Google Drive (~20-25s)...")
+    print("⏳ Downloading OmniVoice AI weights (~2.4GB at high speed)...")
     try:
         from huggingface_hub import snapshot_download
         snapshot_download(repo_id="k2-fsa/OmniVoice", local_files_only=False)
-        print("✅ OmniVoice AI weights successfully cached in Google Drive!")
+        print("✅ OmniVoice AI weights successfully cached!")
     except Exception as e:
         print(f"Model download notice: {e}")
 
@@ -153,7 +172,7 @@ env["OMNIVOICE_SERVER_MODE"] = "1"
 env["OMNIVOICE_DATA_DIR"] = DATA_DIR
 env["PYTHONUNBUFFERED"] = "1"
 
-backend_log = open("/content/backend.log", "ab")
+backend_log = open(os.path.join(ROOT_WORKSPACE, "backend.log"), "ab")
 subprocess.Popen(
     [sys.executable, "-m", "uvicorn", "main:app", "--app-dir", "backend", "--host", "127.0.0.1", "--port", "3900"],
     cwd=VOICESTUDIO_DIR, env=env, stdout=backend_log, stderr=subprocess.STDOUT
@@ -174,25 +193,30 @@ for _ in range(60):
 if backend_ready:
     print("✅ VoiceStudio Engine is online!")
 else:
-    print("⚠️ Backend starting in background. Check /content/backend.log if needed.")
+    print(f"⚠️ Backend starting in background. Check {ROOT_WORKSPACE}/backend.log if needed.")
 
 # Launch Custom Studio Server (Port 5050)
-studio_log = open("/content/studio.log", "ab")
+studio_log = open(os.path.join(ROOT_WORKSPACE, "studio.log"), "ab")
 subprocess.Popen(
-    [sys.executable, f"{STUDIO_DIR}/studio/colab_server.py"],
+    [sys.executable, os.path.join(STUDIO_DIR, "studio", "colab_server.py")],
     stdout=studio_log, stderr=subprocess.STDOUT
 )
 time.sleep(2)
 
 # Cloudflare Public HTTPS Tunnel
 print("\\n🌐 Creating Cloudflare Public Studio Link...")
-subprocess.run("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared", shell=True)
-subprocess.run("nohup cloudflared tunnel --url http://127.0.0.1:5050 --no-autoupdate > /content/cloudflared.log 2>&1 &", shell=True)
+cloudflared_bin = "/usr/local/bin/cloudflared"
+cloudflared_log = os.path.join(ROOT_WORKSPACE, "cloudflared.log")
+
+if not os.path.exists(cloudflared_bin):
+    subprocess.run("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared", shell=True)
+
+subprocess.run(f"nohup cloudflared tunnel --url http://127.0.0.1:5050 --no-autoupdate > {cloudflared_log} 2>&1 &", shell=True)
 
 tunnel_url = ""
-for _ in range(25):
+for _ in range(30):
     time.sleep(1)
-    res = subprocess.run("grep -o 'https://.*trycloudflare.com' /content/cloudflared.log | head -1", shell=True, capture_output=True, text=True)
+    res = subprocess.run(f"grep -o 'https://.*trycloudflare.com' {cloudflared_log} | head -1", shell=True, capture_output=True, text=True)
     found = res.stdout.strip()
     if found:
         tunnel_url = found
@@ -206,13 +230,12 @@ except Exception:
     pass
 
 print("\\n" + "=" * 68)
-print("🎉 VOICE CLONING STUDIO IS LIVE & READY!")
+print(f"🎉 VOICE CLONING STUDIO IS LIVE & READY ON {platform_name.upper()}!")
 if tunnel_url:
     print(f"👉 OPEN STUDIO LINK: {tunnel_url}")
 else:
-    print("👉 Check /content/cloudflared.log for tunnel URL.")
+    print(f"👉 Check {cloudflared_log} for tunnel URL.")
 print("=" * 68)
-print("💾 Google Drive Caching: ACTIVE (Future sessions boot in seconds!)")
 print("🛡️ License Check: BYPASSED (No HTTP 403 errors)")
 print("✅ Profile: P_J_N_Reddy_RealVoice (calibrated 8.35s Telugu audio pre-loaded)")
 print("✅ De-Robotic Quality: 8 diffusion steps, guidance 1.3, raw timbre")
@@ -228,6 +251,9 @@ CELL_2_CODE = """# =============================================================
 import requests, os, wave, io, time, subprocess, importlib, re
 import numpy as np
 import scipy.signal as signal
+
+IS_KAGGLE = os.path.exists("/kaggle/working")
+ROOT_WORKSPACE = "/kaggle/working" if IS_KAGGLE else "/content"
 
 try:
     _disp = importlib.import_module("IPython.display")
@@ -366,7 +392,7 @@ polished = signal.lfilter(b, a, audio)
 polished = np.clip(polished, -0.98, 0.98)
 polished_bytes = (polished * 32767.0).astype(np.int16).tobytes()
 
-out_dir = "/content/cloned_takes"
+out_dir = os.path.join(ROOT_WORKSPACE, "cloned_takes")
 os.makedirs(out_dir, exist_ok=True)
 wav_out = os.path.join(out_dir, "studio_master.wav")
 mp3_out = os.path.join(out_dir, "studio_master.mp3")
@@ -398,25 +424,28 @@ if display and Audio and os.path.exists(mp3_out):
 def split_lines(text):
     return [line + "\n" for line in text.splitlines()]
 
-notebook = {
+# Generate Colab Notebook
+colab_notebook = {
     "cells": [
         {
             "cell_type": "markdown",
             "metadata": {"id": "hdr_01"},
             "source": [
                 "# 🎙️ Permanent Voice Studio Setup (GPU Accelerated)\n",
-                "### High-Speed Telugu & English AI Voice Cloning on Google Colab (Free T4 GPU)\n",
+                "### High-Speed Telugu & English AI Voice Cloning (Kaggle & Colab GPU)\n",
                 "\n",
-                "* **Persistent Caching:** Models are permanently saved in your Google Drive (`VoiceStudio_Cache`). Future sessions boot in **seconds**!\n",
+                "* **Universal Compatibility:** Works on **Kaggle** (30 hours free GPU/week) and **Google Colab**.\n",
+                "* **Persistent Caching:** Models are cached permanently (Drive on Colab, working directory on Kaggle).\n",
                 "* **Zero 403 Errors:** Model licenses are pre-accepted and bypassed automatically.\n",
                 "* **Pre-calibrated:** Voice profile `P_J_N_Reddy_RealVoice` is loaded with clean 8.35s Telugu audio.\n",
                 "* **Studio Quality:** 8 diffusion steps, guidance 1.3, raw timbre, broadcast `-16 LUFS` mastering.\n",
                 "\n",
                 "---\n",
                 "### 🚀 Instructions:\n",
-                "1. Ensure GPU is active: **Runtime ➔ Change runtime type ➔ T4 GPU ➔ Save**.\n",
-                "2. Click the Play button on **Cell 1**.\n",
-                "3. In seconds, click the **Public Studio Link** (`https://xxxx.trycloudflare.com`) to open your exact Dark-Mode Studio UI!\n"
+                "1. **On Kaggle:** In right sidebar ➔ **Settings** ➔ Toggle **Internet: ON** ➔ **Accelerator: GPU T4 x2**.\n",
+                "2. **On Colab:** **Runtime ➔ Change runtime type ➔ T4 GPU ➔ Save**.\n",
+                "3. Click the Play button on **Cell 1**.\n",
+                "4. In seconds, click the **Public Studio Link** (`https://xxxx.trycloudflare.com`) to open your exact Dark-Mode Studio UI!\n"
             ]
         },
         {
@@ -424,7 +453,7 @@ notebook = {
             "metadata": {"id": "step_1_md"},
             "source": [
                 "### ⚡ Cell 1: Launch Voice Cloning Studio\n",
-                "Mounts Google Drive cache, installs dependencies, patches licenses, starts backend & provides your Public Studio link.\n"
+                "Sets up environment, installs dependencies, patches licenses, starts backend & provides your Public Studio link.\n"
             ]
         },
         {
@@ -439,7 +468,7 @@ notebook = {
             "metadata": {"id": "step_2_md"},
             "source": [
                 "### 🎙️ Cell 2 (Optional): Direct In-Notebook Voiceover Generator\n",
-                "Paste your Telugu script and generate directly inside Colab with sentence-chunking and studio mastering.\n"
+                "Paste your Telugu script and generate directly inside the notebook with sentence-chunking and studio mastering.\n"
             ]
         },
         {
@@ -468,7 +497,81 @@ notebook = {
     "nbformat_minor": 0
 }
 
-with open(NOTEBOOK_PATH, "w", encoding="utf-8") as f:
-    json.dump(notebook, f, indent=2, ensure_ascii=False)
+# Generate Kaggle Notebook
+kaggle_notebook = {
+    "cells": [
+        {
+            "cell_type": "markdown",
+            "metadata": {"id": "kaggle_hdr_01"},
+            "source": [
+                "# 🎙️ Voice Cloning Studio (Kaggle GPU Edition - 30 Hours/Week Free)\n",
+                "### High-Speed Telugu & English AI Voice Cloning on Kaggle GPU\n",
+                "\n",
+                "* **30 Hours Free GPU / Week:** Runs on **GPU T4 x2** or **GPU P100** on Kaggle.\n",
+                "* **Dedicated Studio UI:** Dark-mode interface on port 5050 with Cloudflare public link.\n",
+                "* **Pre-calibrated:** Voice profile `P_J_N_Reddy_RealVoice` is pre-registered with clean 8.35s Telugu audio.\n",
+                "* **Studio Mastering:** Automatically mastered to `-16 LUFS` broadcast MP3 with natural sentence chunking.\n",
+                "\n",
+                "---\n",
+                "### ⚙️ Important Kaggle Setup Before Running:\n",
+                "1. In the right sidebar under **Notebook options**:\n",
+                "   * **Accelerator:** Select **GPU T4 x2** (or GPU P100).\n",
+                "   * **Internet:** Toggle to **Internet on** (REQUIRED for downloading weights and Cloudflare tunnel).\n",
+                "2. Click the Play button on **Cell 1**.\n",
+                "3. In ~60s, click the **Public Studio Link** (`https://xxxx.trycloudflare.com`) printed at the bottom of Cell 1!\n"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {"id": "kaggle_step_1_md"},
+            "source": [
+                "### ⚡ Cell 1: 1-Click Launch Voice Studio (~60s)\n",
+                "Clones repositories, installs dependencies, patches licenses, boots engine & displays your Live Studio link.\n"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {"id": "kaggle_cell_1_code"},
+            "outputs": [],
+            "source": split_lines(CELL_1_CODE.strip())
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {"id": "kaggle_step_2_md"},
+            "source": [
+                "### 🎙️ Cell 2 (Optional): Direct In-Notebook Voiceover Generator\n",
+                "Generate voiceovers directly inside Kaggle with sentence-chunking and studio mastering.\n"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {"id": "kaggle_cell_2_code"},
+            "outputs": [],
+            "source": split_lines(CELL_2_CODE.strip())
+        }
+    ],
+    "metadata": {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3"
+        },
+        "language_info": {
+            "name": "python",
+            "version": "3.10.12"
+        }
+    },
+    "nbformat": 4,
+    "nbformat_minor": 0
+}
 
-print(f"✅ Generated streamlined notebook at {NOTEBOOK_PATH}")
+with open(COLAB_NOTEBOOK_PATH, "w", encoding="utf-8") as f:
+    json.dump(colab_notebook, f, indent=2, ensure_ascii=False)
+
+with open(KAGGLE_NOTEBOOK_PATH, "w", encoding="utf-8") as f:
+    json.dump(kaggle_notebook, f, indent=2, ensure_ascii=False)
+
+print(f"✅ Generated Colab notebook at {COLAB_NOTEBOOK_PATH}")
+print(f"✅ Generated Kaggle notebook at {KAGGLE_NOTEBOOK_PATH}")

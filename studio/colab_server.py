@@ -26,8 +26,10 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = "/content/cloned_takes"
-INPUT_DIR = "/content/input"
+IS_KAGGLE = os.path.exists("/kaggle/working")
+ROOT_WORKSPACE = "/kaggle/working" if IS_KAGGLE else "/content"
+OUTPUT_DIR = os.path.join(ROOT_WORKSPACE, "cloned_takes")
+INPUT_DIR = os.path.join(ROOT_WORKSPACE, "input")
 VOICESTUDIO_URL = "http://127.0.0.1:3900"
 FFMPEG_BIN = "ffmpeg"
 
@@ -143,7 +145,7 @@ def split_text_into_chunks(text: str, max_chars: int = 150) -> list[str]:
 def auto_accept_model_licenses():
     """Auto-accept all model licenses in VoiceStudio backend so 403 never occurs."""
     try:
-        backend_path = "/content/VoiceStudio/backend"
+        backend_path = os.path.join(ROOT_WORKSPACE, "VoiceStudio", "backend")
         if backend_path not in sys.path and os.path.exists(backend_path):
             sys.path.insert(0, backend_path)
         from services import model_acceptance

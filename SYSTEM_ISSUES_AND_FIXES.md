@@ -17,10 +17,31 @@
 | **ISS-007** | Prosody / Pitch | Flat intonation on question marks (`?`) sounding like statements | 🟡 IN PROGRESS (Fix 1 Active) |
 | **ISS-008** | Emotion / Timbre | Uniform calm explanatory energy across hooks and climaxes | 🟡 IN PROGRESS (Fix 1 Active) |
 | **ISS-009** | Model Evolution | Need for high-energy social media / YouTube narration fine-tuning | ⚪ ROADMAP (Design Phase) |
+| **ISS-010** | Platform / Kaggle | `fatal: repository 'https://github.com/' not found` on Kaggle migration | 🟢 RESOLVED |
 
 ---
 
 ## 🔍 Detailed Issue Breakdown
+
+---
+
+### [ISS-010] Kaggle Migration & Incomplete Repo URL (`https://github.com`)
+* **Date Encountered:** Kaggle Migration (30h/week free GPU setup)
+* **Component:** Kaggle Environment & Git Clone Launcher
+* **Symptom:**
+  Running the Kaggle bootstrap cell threw:
+  `fatal: repository 'https://github.com/' not found`
+  `CalledProcessError: Command '['git', 'clone', 'https://github.com', ...]' returned non-zero exit status 128`
+* **Root Cause:**
+  1. The launcher cell had `REPO_URL = "https://github.com"` missing the repository slug (`/Jithendranageswarareddy/OmniVoice_Studio_Colab.git`).
+  2. Kaggle working filesystem uses `/kaggle/working/` instead of Colab's `/content/`.
+  3. Kaggle containers require **Internet ON** in Notebook settings to make outbound network calls for models and Cloudflare tunnels.
+* **Fix Applied:**
+  1. Built universal auto-detection: `ROOT_WORKSPACE = "/kaggle/working" if os.path.exists("/kaggle/working") else "/content"`.
+  2. Fixed `REPO_URL` to point to the exact repository.
+  3. Created `Kaggle_Voice_Studio_Setup.ipynb` with pre-configured settings for Kaggle's 30 free GPU hours per week.
+* **Result:**
+  The studio boots natively and universally on both Kaggle and Colab.
 
 ---
 
