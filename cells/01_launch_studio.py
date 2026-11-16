@@ -49,11 +49,29 @@ if USE_DRIVE and not IS_KAGGLE:
     except Exception as e:
         print(f"ℹ️ Google Drive not mounted, using local storage ({e})")
 
+# Check for attached Kaggle Dataset for 0-second instant startup
+KAGGLE_ATTACHED_HF = None
+if IS_KAGGLE and os.path.exists("/kaggle/input"):
+    for item in os.listdir("/kaggle/input"):
+        cand = os.path.join("/kaggle/input", item)
+        if os.path.exists(os.path.join(cand, "hub", "models--k2-fsa--OmniVoice")):
+            KAGGLE_ATTACHED_HF = cand
+            break
+        if os.path.exists(os.path.join(cand, "huggingface", "hub", "models--k2-fsa--OmniVoice")):
+            KAGGLE_ATTACHED_HF = os.path.join(cand, "huggingface")
+            break
+
 if DRIVE_MOUNTED:
     HF_DIR = os.path.join(CACHE_BASE, "huggingface")
     TORCH_DIR = os.path.join(CACHE_BASE, "torch")
     DATA_DIR = os.path.join(CACHE_BASE, "omnivoice_data")
     UV_CACHE = os.path.join(CACHE_BASE, "uv_cache")
+elif KAGGLE_ATTACHED_HF:
+    HF_DIR = KAGGLE_ATTACHED_HF
+    TORCH_DIR = os.path.join(ROOT_WORKSPACE, "cache", "torch")
+    DATA_DIR = os.path.join(ROOT_WORKSPACE, "omnivoice_data")
+    UV_CACHE = os.path.join(ROOT_WORKSPACE, "cache", "uv")
+    print(f"⚡ INSTANT BOOT: OmniVoice weights detected from Kaggle Input Dataset ({KAGGLE_ATTACHED_HF})! (0s download)")
 else:
     HF_DIR = os.path.join(ROOT_WORKSPACE, "cache", "huggingface")
     TORCH_DIR = os.path.join(ROOT_WORKSPACE, "cache", "torch")
@@ -228,3 +246,9 @@ print("✅ De-Robotic Quality: 8 diffusion steps, guidance 1.3, raw timbre")
 print("✅ Auto-Trimming: Prevents [clone_ref_too_long] on any voice upload")
 print("✅ Broadcast Audio: Mastered to -16 LUFS with natural breath pauses")
 print("=" * 68)
+if IS_KAGGLE and not KAGGLE_ATTACHED_HF:
+    print("\n💡 KAGGLE TIP FOR ZERO-SECOND INSTANT RE-BOOTS:")
+    print("   To permanently cache models so you never wait for downloads again:")
+    print("   1. In right sidebar -> Data -> Output -> click '...' -> 'Save as Dataset' -> name it 'omnivoice-cache'.")
+    print("   2. In any future session, click '+ Add Input' -> Your Datasets -> 'omnivoice-cache'.")
+    print("   -> Next time, the model will load in literally 0 SECONDS!\n")

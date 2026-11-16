@@ -18,10 +18,27 @@
 | **ISS-008** | Emotion / Timbre | Uniform calm explanatory energy across hooks and climaxes | 🟡 IN PROGRESS (Fix 1 Active) |
 | **ISS-009** | Model Evolution | Need for high-energy social media / YouTube narration fine-tuning | ⚪ ROADMAP (Design Phase) |
 | **ISS-010** | Platform / Kaggle | `fatal: repository 'https://github.com/' not found` on Kaggle migration | 🟢 RESOLVED |
+| **ISS-011** | Caching / Kaggle | Preventing model re-downloading on Kaggle ephemeral sessions | 🟢 RESOLVED |
 
 ---
 
 ## 🔍 Detailed Issue Breakdown
+
+---
+
+### [ISS-011] Kaggle Model Caching & Instant 0-Second Re-Boot Architecture
+* **Date Encountered:** Kaggle Workflow Optimization
+* **Component:** Kaggle Working Disk vs. Attached Dataset Inputs
+* **Symptom / User Question:**
+  *"Will the model install every time? If that happens, it takes much time to install the models and all."*
+* **Root Cause:**
+  Kaggle VMs are ephemeral. When a notebook session terminates, files saved in `/kaggle/working` are discarded unless persisted as a Kaggle Dataset.
+* **Fix Applied:**
+  1. Updated `01_launch_studio.py` and `build_notebook.py` to automatically scan `/kaggle/input/*` for any attached Kaggle dataset containing `models--k2-fsa--OmniVoice`.
+  2. If an attached dataset is found, it points `HF_HOME` directly to `/kaggle/input/...`—bypassing the 2.4 GB download completely (**0.0 seconds download time**).
+  3. Added an automated guidance prompt in the output: after the first run, the user can save the output as a private dataset (`omnivoice-cache`) and attach it to future notebooks for instant startup.
+* **Result:**
+  First run downloads the weights once over Kaggle's fast connection (~15s); subsequent runs with the attached dataset boot in seconds.
 
 ---
 
