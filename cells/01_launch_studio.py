@@ -173,6 +173,61 @@ if os.path.exists(HF_DIR):
                         pass
 
 # Pre-download and rigorously verify both OmniVoice weights and Higgs Audio tokenizer
+def verify_snapshot_integrity(snap_dir: str, repo_id: str):
+    import urllib.request
+    # 1. Check all JSON files in the snapshot for Git LFS pointers (e.g. tokenizer.json)
+    for root, _, files in os.walk(snap_dir):
+        for f in files:
+            if f.endswith(".json"):
+                fpath = os.path.join(root, f)
+                is_corrupt = False
+                try:
+                    sz = os.path.getsize(fpath)
+                    if sz == 0:
+                        is_corrupt = True
+                    else:
+                        with open(fpath, "r", encoding="utf-8", errors="ignore") as jf:
+                            head = jf.read(200)
+                            if "git-lfs.github.com" in head or "oid sha256" in head:
+                                is_corrupt = True
+                            elif not head.strip().startswith(("{", "[")):
+                                is_corrupt = True
+                            else:
+                                jf.seek(0)
+                                json.load(jf)
+                except Exception:
+                    is_corrupt = True
+                
+                if is_corrupt:
+                    print(f"🔧 Detected Git LFS pointer / unparsed JSON in {f} ({os.path.getsize(fpath)} bytes). Restoring full file...")
+                    rel_name = os.path.relpath(fpath, snap_dir).replace("\\", "/")
+                    url = f"https://huggingface.co/{repo_id}/resolve/main/{rel_name}"
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        content = resp.read()
+                    json.loads(content)  # Validate JSON before writing
+                    target_file = os.path.realpath(fpath) if os.path.islink(fpath) else fpath
+                    try:
+                        with open(target_file, "wb") as out_f:
+                            out_f.write(content)
+                    except Exception:
+                        if os.path.islink(fpath):
+                            os.remove(fpath)
+                        with open(fpath, "wb") as out_f:
+                            out_f.write(content)
+                    print(f"✅ Successfully restored {f} ({len(content)} bytes)!")
+
+    # 2. Check safetensors files - must not be a 133-byte LFS pointer
+    for root, _, files in os.walk(snap_dir):
+        for f in files:
+            if f.endswith(".safetensors"):
+                fpath = os.path.join(root, f)
+                if os.path.getsize(fpath) < 1000000:
+                    print(f"⚠️ {f} is an LFS pointer ({os.path.getsize(fpath)} bytes)! Re-downloading full weights...")
+                    from huggingface_hub import hf_hub_download
+                    rel_name = os.path.relpath(fpath, snap_dir).replace("\\", "/")
+                    hf_hub_download(repo_id=repo_id, filename=rel_name, local_dir=snap_dir, force_download=True)
+
 def resolve_and_verify_model(repo_id: str, hf_dir: str) -> str:
     from huggingface_hub import snapshot_download
     # 1. Try local cache verification first (prevents redundant downloads)
@@ -181,14 +236,16 @@ def resolve_and_verify_model(repo_id: str, hf_dir: str) -> str:
         has_cfg = os.path.exists(os.path.join(snap, "config.json")) or os.path.exists(os.path.join(snap, "preprocessor_config.json"))
         has_weights = any(f.endswith((".safetensors", ".bin", ".pt")) for f in os.listdir(snap))
         if has_cfg and has_weights:
+            verify_snapshot_integrity(snap, repo_id)
             print(f"⚡ INSTANT BOOT: {repo_id} weights verified in cache! (0s download)")
             return snap
         print(f"⚠️ Cache incomplete for {repo_id}, downloading missing files...")
-    except Exception:
-        print(f"⏳ Caching {repo_id} weights from HuggingFace (~high speed)...")
+    except Exception as e:
+        print(f"⏳ Caching {repo_id} weights from HuggingFace (~high speed)... ({e})")
     
     # 2. Download / repair complete snapshot
     snap = snapshot_download(repo_id=repo_id, local_files_only=False)
+    verify_snapshot_integrity(snap, repo_id)
     print(f"✅ {repo_id} weights successfully cached at: {snap}")
     return snap
 

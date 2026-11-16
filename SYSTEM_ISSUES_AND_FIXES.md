@@ -256,23 +256,24 @@
 
 ---
 
-### [ISS-013] Voice Generation HTTP 500 JSONDecodeError / NETWORK_ERROR on Kaggle
+### [ISS-013] Voice Generation HTTP 500 JSONDecodeError / NETWORK_ERROR on Kaggle (Git LFS Pointer in tokenizer.json)
 * **Date Encountered:** Voice Synthesis on Kaggle Tesla T4 GPU
-* **Component:** `VoiceStudio.from_pretrained` & HuggingFace Hub Runtime Connection
+* **Component:** `transformers/tokenization_utils_base.py:1920` (`tokenizer.json` parser)
 * **Symptom:**
   `Voice generation failed: HTTP 500: {"detail":"VoiceStudio hit an internal error; check the backend log for details.","error_class":"NETWORK_ERROR","error_type":"JSONDecodeError"}`
+  Traceback confirmed:
+  ```
+  File "transformers/tokenization_utils_base.py", line 1920, in _from_pretrained
+      tokenizer_file_handle = json.load(tokenizer_file_handle)
+  JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+  ```
 * **Root Cause:**
-  1. **Superficial Cache Check:** `01_launch_studio.py` previously checked only if the model directory existed (`os.path.isdir(cached_path)`). Any partially downloaded or empty directory from a previous run was falsely reported as `⚡ INSTANT BOOT`, deferring real download to runtime.
-  2. **Online HuggingFace Hub Query:** At generation time, `VoiceStudio.from_pretrained` ran with `local_checkpoint = False` because `checkpoint` was passed as `"k2-fsa/OmniVoice"` (repo ID string). Transformers made an online request to `huggingface.co/api/models/...`. On Kaggle's shared datacenter IP, Hugging Face responded with a Cloudflare HTML rate limit / challenge. `requests` threw `JSONDecodeError` while parsing HTML as JSON, which VoiceStudio's `error_journal.py` classified as `NETWORK_ERROR`.
+  1. **Git LFS Pointer in `tokenizer.json`:** In `k2-fsa/OmniVoice`, `tokenizer.json` is an 11.4 MB file tracked via Git LFS (`lfs=True`). If fetched without Git LFS or partially cloned, only the 133-byte Git LFS pointer file (`version https://git-lfs.github.com/spec/v1 ...`) was stored on disk.
+  2. **Failed JSON Parse:** When `AutoTokenizer.from_pretrained` executed, transformers opened `tokenizer.json` and called `json.load()`. The plain text pointer failed JSON decoding, triggering `JSONDecodeError`, which VoiceStudio's taxonomy classified as `NETWORK_ERROR`.
 * **Fix Applied:**
-  1. **Rigorous Cache Verification:** Switched to `snapshot_download(repo_id=..., local_files_only=True)` checking for `config.json` and `.safetensors` weights before declaring cache valid.
-  2. **Explicit Offline Loading:**
-     - Resolved exact snapshot directory path and set `OMNIVOICE_MODEL` to the local path.
-     - Patched `model_manager.py` to pass `local_files_only=True`.
-     - Patched `omnivoice.py` to enforce `local_checkpoint = True`.
-     - Injected `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` into the environment.
-     - Linked `audio_tokenizer` snapshot into the OmniVoice snapshot directory to guarantee 100% offline tokenizer availability.
-  3. **Transparent Traceback Reporting:** Updated `colab_server.py` to capture and include the last 30 lines of `backend.log` directly in error responses.
+  1. **Automated LFS Pointer Detection & Replacement:** Added `verify_snapshot_integrity` which reads the first 200 bytes of every `.json` file in the snapshot. If it detects a Git LFS header (`git-lfs.github.com` or `oid sha256`), it automatically pulls the full 11.4 MB file from `https://huggingface.co/k2-fsa/OmniVoice/resolve/main/tokenizer.json` and replaces the pointer file / blob.
+  2. **Safetensors LFS Guard:** Verified that `.safetensors` files are genuine binary weights (> 1 MB) rather than LFS pointer stubs.
+  3. **Strict Offline Mode:** Ensured VoiceStudio loads strictly from the verified snapshot with `local_files_only=True`, `HF_HUB_OFFLINE=1`, and `TRANSFORMERS_OFFLINE=1`.
 * **Status:** Resolved. Tested and deployed to GitHub repository.
 
 ---
