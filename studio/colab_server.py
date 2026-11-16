@@ -108,7 +108,12 @@ def ensure_voice_profile_registered():
     return None
 
 def split_text_into_chunks(text: str, max_chars: int = 150) -> list[str]:
-    raw_sentences = re.split(r'([.?!।\n]+)', text)
+    # 1. Protect ellipses (...) so they don't fracture sentences into tiny 1-word bursty fragments
+    protected = re.sub(r'\.{2,}', ' __ELLIPSIS__ ', text)
+    protected = re.sub(r'…', ' __ELLIPSIS__ ', protected)
+
+    # 2. Split on sentence boundaries
+    raw_sentences = re.split(r'([.?!।\n]+)', protected)
     chunks = []
     current = ""
     for s in raw_sentences:
@@ -127,8 +132,17 @@ def split_text_into_chunks(text: str, max_chars: int = 150) -> list[str]:
     if current.strip():
         chunks.append(current.strip())
 
+    # 3. Restore ellipses and clean whitespace
+    restored = []
+    for c in chunks:
+        r = c.replace('__ELLIPSIS__', '...').strip()
+        r = re.sub(r'\s+', ' ', r)
+        if r:
+            restored.append(r)
+
+    # 4. Clause breakdown for sentences exceeding max_chars
     refined = []
-    for s in chunks:
+    for s in restored:
         if len(s) <= max_chars:
             refined.append(s)
         else:
@@ -144,7 +158,18 @@ def split_text_into_chunks(text: str, max_chars: int = 150) -> list[str]:
             if sub.strip():
                 refined.append(sub.strip())
 
-    return [c for c in refined if len(c.strip()) > 0]
+    # 5. Merge micro-chunks (<18 chars or <= 2 words) to prevent rapid staccato bursts
+    merged = []
+    for c in refined:
+        clean_c = c.strip()
+        if not clean_c:
+            continue
+        if merged and (len(merged[-1]) + len(clean_c) + 1 <= max_chars) and (len(clean_c.split()) <= 2 or len(clean_c) < 18):
+            merged[-1] = merged[-1] + " " + clean_c
+        else:
+            merged.append(clean_c)
+
+    return [c for c in merged if len(c.strip()) > 0]
 
 def auto_accept_model_licenses():
     """Auto-accept all model licenses in VoiceStudio backend so 403 never occurs."""

@@ -278,6 +278,22 @@
 
 ---
 
+### [ISS-014] Perceived Fast / Bursty Cadence from Ellipsis Fragmentation
+* **Date Encountered:** User Testing on 32.5s Engineered Script Take
+* **Component:** `colab_server.py:split_text_into_chunks`
+* **Symptom:**
+  Audio perceived as slightly rushed or "bursty", despite overall speed averaging ~107 words/min.
+* **Root Cause:**
+  1. **Ellipsis Fragmentation:** `re.split(r'([.?!।\n]+)', text)` treated `...` as sentence breaks, generating 15 tiny chunks. Micro-fragments like *"అసలు..."* (1 word) or *"దాని పేరేంటో తెలుసా?..."* (3 words) were isolated into separate diffusion generation calls.
+  2. **Short-Clause Neural Velocity:** Diffusion models articulate isolated 1-2 word phrases in rapid ~0.35s bursts. When followed immediately by 180ms silence and another burst, the auditory rhythm feels staccato and hurried.
+* **Fix Applied:**
+  1. **Ellipsis Shielding:** Shielded ellipses (`...` / `…`) with `__ELLIPSIS__` tokens so they remain inline hesitations rather than hard split boundaries.
+  2. **Micro-Chunk Merge:** Merged any sub-clause shorter than 18 characters or <= 2 words into its adjacent sentence (reducing 15 fragmented calls to 9 coherent sentences).
+  3. **Expanded Studio Speed Controls:** Added `0.90x` ("Calm Storyteller") and `0.95x` ("Deliberate & Measured") options in the Web UI for relaxed documentary pacing.
+* **Status:** Resolved. Tested and deployed to GitHub repository.
+
+---
+
 ## 📝 How to Log a New Issue
 Whenever a new issue arises:
 1. Assign the next available ID (e.g., `[ISS-010]`).
