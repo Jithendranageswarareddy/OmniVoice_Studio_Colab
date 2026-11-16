@@ -19,7 +19,9 @@
 | **ISS-009** | Model Evolution | Need for high-energy social media / YouTube narration fine-tuning | ⚪ ROADMAP (Design Phase) |
 | **ISS-010** | Platform / Kaggle | `fatal: repository 'https://github.com/' not found` on Kaggle migration | 🟢 RESOLVED |
 | **ISS-011** | Caching / Kaggle | Preventing model re-downloading on Kaggle ephemeral sessions | 🟢 RESOLVED |
-| **ISS-012** | Model Assets | HTTP 500 `JSONDecodeError` / `NETWORK_ERROR` on un-cached tokenizer | 🟢 RESOLVED |
+| **ISS-013** | Model Assets / LFS | Git LFS pointer in `tokenizer.json` causing `JSONDecodeError` | 🟢 RESOLVED |
+| **ISS-014** | Prosody / Rhythm | Perceived fast/bursty cadence from ellipsis fragmentation | 🟢 RESOLVED |
+| **ISS-015** | Kaggle Notebook Sync | Notebook code out-of-sync & read-only LFS blob permissions | 🟢 RESOLVED |
 
 ---
 
@@ -291,6 +293,25 @@
   2. **Micro-Chunk Merge:** Merged any sub-clause shorter than 18 characters or <= 2 words into its adjacent sentence (reducing 15 fragmented calls to 9 coherent sentences).
   3. **Expanded Studio Speed Controls:** Added `0.90x` ("Calm Storyteller") and `0.95x` ("Deliberate & Measured") options in the Web UI for relaxed documentary pacing.
 * **Status:** Resolved. Tested and deployed to GitHub repository.
+
+---
+
+### [ISS-015] Kaggle Notebook Launcher Sync & LFS Blob Permissions
+* **Date Encountered:** Kaggle Voice Studio Draft Session Launch
+* **Component:** `Kaggle_Voice_Studio_Setup.ipynb`, `cells/01_launch_studio.py`, `HF Cache Blobs`
+* **Symptom:**
+  User experienced `JSONDecodeError` on Kaggle when running `Kagglevoiceclonesetup`:
+  `File "transformers/tokenization_utils_base.py", line 1920, in _from_pretrained`
+  `tokenizer_file_handle = json.load(tokenizer_file_handle)`
+* **Root Causes:**
+  1. **Out-of-Sync Notebook Code:** The `.ipynb` notebook previously embedded a hardcoded copy of cell code that predated the automated Git LFS pointer restoration logic (`verify_snapshot_integrity`).
+  2. **Read-Only HuggingFace Blob Permissions:** Hugging Face cache writes blob files with mode `0o444` (read-only). Overwriting an LFS pointer with the real 11.4MB JSON required explicitly making the target writable or unlinking the pointer symlink.
+  3. **Installed Package Location:** In Kaggle environments, `omnivoice` is installed into `/usr/local/lib/python3.13/dist-packages/omnivoice/models/omnivoice.py`. Patching had to cover both the local clone and the global `dist-packages`.
+* **Fix Applied:**
+  1. **Dynamic Git Pull Launcher in Notebooks:** Updated both `Kaggle_Voice_Studio_Setup.ipynb` and `Permanent_Voice_Studio_Setup.ipynb` with a streamlined 1-click cell that clones or pulls `OmniVoice_Studio_Colab`, sets up path symlinks, and executes `cells/01_launch_studio.py` dynamically.
+  2. **Read-Only Blob & Symlink Handler:** Updated `verify_snapshot_integrity` to `chmod 0o666` and safely unlink symlinks before downloading the full 11.4MB `tokenizer.json`.
+  3. **Multi-Location OmniVoice Patching:** Ensured `local_checkpoint = True` is patched across all `dist-packages` and repo locations.
+* **Status:** Resolved and synchronized across GitHub repository.
 
 ---
 

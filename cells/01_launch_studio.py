@@ -90,15 +90,27 @@ os.environ["PYTHONUNBUFFERED"] = "1"
 
 # ── 3. Fetch Repositories ─────────────────────────────────────────────────────
 print("\n📦 3/6 Fetching Studio Repositories...")
-STUDIO_DIR = os.path.join(ROOT_WORKSPACE, "colab-voice-studio")
-VOICESTUDIO_DIR = os.path.join(ROOT_WORKSPACE, "VoiceStudio")
-
 REPO_URL = "https://github.com/Jithendranageswarareddy/OmniVoice_Studio_Colab.git"
-if not os.path.isdir(STUDIO_DIR):
-    subprocess.run(["git", "clone", "--depth", "1", REPO_URL, STUDIO_DIR], check=True)
-else:
-    subprocess.run(["git", "-C", STUDIO_DIR, "pull", "--rebase"], capture_output=True)
 
+# Dynamically locate repo directory (supports both OmniVoice_Studio_Colab and colab-voice-studio)
+if os.path.exists(os.path.join(ROOT_WORKSPACE, "OmniVoice_Studio_Colab")):
+    STUDIO_DIR = os.path.join(ROOT_WORKSPACE, "OmniVoice_Studio_Colab")
+elif os.path.exists(os.path.join(ROOT_WORKSPACE, "colab-voice-studio")):
+    STUDIO_DIR = os.path.join(ROOT_WORKSPACE, "colab-voice-studio")
+else:
+    STUDIO_DIR = os.path.join(ROOT_WORKSPACE, "OmniVoice_Studio_Colab")
+    subprocess.run(["git", "clone", "--depth", "1", REPO_URL, STUDIO_DIR], check=True)
+
+# Ensure bidirectional symlink so both paths work interchangeably
+for alias in ["OmniVoice_Studio_Colab", "colab-voice-studio"]:
+    target = os.path.join(ROOT_WORKSPACE, alias)
+    if not os.path.exists(target):
+        try:
+            os.symlink(STUDIO_DIR, target)
+        except Exception:
+            pass
+
+VOICESTUDIO_DIR = os.path.join(ROOT_WORKSPACE, "VoiceStudio")
 if not os.path.isdir(VOICESTUDIO_DIR):
     subprocess.run(["git", "clone", "--depth", "1", "https://github.com/debpalash/VoiceStudio.git", VOICESTUDIO_DIR], check=True)
 
@@ -207,12 +219,20 @@ def verify_snapshot_integrity(snap_dir: str, repo_id: str):
                         content = resp.read()
                     json.loads(content)  # Validate JSON before writing
                     target_file = os.path.realpath(fpath) if os.path.islink(fpath) else fpath
+                    if os.path.exists(target_file):
+                        try:
+                            os.chmod(target_file, 0o666)
+                        except Exception:
+                            pass
                     try:
                         with open(target_file, "wb") as out_f:
                             out_f.write(content)
                     except Exception:
                         if os.path.islink(fpath):
-                            os.remove(fpath)
+                            try:
+                                os.unlink(fpath)
+                            except Exception:
+                                pass
                         with open(fpath, "wb") as out_f:
                             out_f.write(content)
                     print(f"✅ Successfully restored {f} ({len(content)} bytes)!")
@@ -277,16 +297,19 @@ if os.path.exists(mm_py):
         with open(mm_py, "w", encoding="utf-8") as f:
             f.write(mm_src)
 
-ov_py = os.path.join(VOICESTUDIO_DIR, "omnivoice", "models", "omnivoice.py")
-if os.path.exists(ov_py):
-    with open(ov_py, "r", encoding="utf-8") as f:
-        ov_src = f.read()
-    ov_src = ov_src.replace(
-        "local_checkpoint = os.path.isdir(pretrained_model_name_or_path)",
-        "local_checkpoint = True"
-    )
-    with open(ov_py, "w", encoding="utf-8") as f:
-        f.write(ov_src)
+import glob
+for ov_candidate in glob.glob("/usr/local/lib/python*/dist-packages/omnivoice/models/omnivoice.py") + \
+                    glob.glob("/usr/lib/python*/dist-packages/omnivoice/models/omnivoice.py") + \
+                    [os.path.join(VOICESTUDIO_DIR, "omnivoice", "models", "omnivoice.py")]:
+    if os.path.exists(ov_candidate):
+        with open(ov_candidate, "r", encoding="utf-8") as f:
+            ov_src = f.read()
+        ov_src = ov_src.replace(
+            "local_checkpoint = os.path.isdir(pretrained_model_name_or_path)",
+            "local_checkpoint = True"
+        )
+        with open(ov_candidate, "w", encoding="utf-8") as f:
+            f.write(ov_src)
 print("🛡️ VoiceStudio patched: Offline local loading enforced (HuggingFace JSONDecodeError eliminated).")
 
 # ── 6. Launch VoiceStudio Backend (Port 3900) & Custom Studio UI (Port 5050) ───
