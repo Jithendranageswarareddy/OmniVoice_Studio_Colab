@@ -107,69 +107,99 @@ def ensure_voice_profile_registered():
         print(f"Notice: Profile register check: {e}")
     return None
 
-def split_text_into_chunks(text: str, max_chars: int = 150) -> list[str]:
-    # 1. Protect ellipses (...) so they don't fracture sentences into tiny 1-word bursty fragments
-    protected = re.sub(r'\.{2,}', ' __ELLIPSIS__ ', text)
-    protected = re.sub(r'…', ' __ELLIPSIS__ ', protected)
+def split_text_into_chunks(text: str, max_chars: int = 150) -> list[dict]:
+    """Splits text into natural sentences with adaptive pause metadata and emotional tags."""
+    paragraphs = text.split("\n\n")
+    all_chunks = []
 
-    # 2. Split on sentence boundaries
-    raw_sentences = re.split(r'([.?!।\n]+)', protected)
-    chunks = []
-    current = ""
-    for s in raw_sentences:
-        if not s:
+    for p_idx, para in enumerate(paragraphs):
+        para = para.strip()
+        if not para:
             continue
-        if re.match(r'^[.?!।\n]+$', s):
-            current += s
-            if len(current.strip()) > 0:
-                chunks.append(current.strip())
-                current = ""
-        else:
-            if current:
-                chunks.append(current.strip())
-            current = s
 
-    if current.strip():
-        chunks.append(current.strip())
+        # 1. Protect ellipses (...) so they don't fracture sentences into tiny 1-word bursty fragments
+        protected = re.sub(r'\.{2,}', ' __ELLIPSIS__ ', para)
+        protected = re.sub(r'…', ' __ELLIPSIS__ ', protected)
 
-    # 3. Restore ellipses and clean whitespace
-    restored = []
-    for c in chunks:
-        r = c.replace('__ELLIPSIS__', '...').strip()
-        r = re.sub(r'\s+', ' ', r)
-        if r:
-            restored.append(r)
+        # 2. Split on sentence boundaries
+        raw_sentences = re.split(r'([.?!।\n]+)', protected)
+        chunks = []
+        current = ""
+        for s in raw_sentences:
+            if not s:
+                continue
+            if re.match(r'^[.?!।\n]+$', s):
+                current += s
+                if len(current.strip()) > 0:
+                    chunks.append(current.strip())
+                    current = ""
+            else:
+                if current:
+                    chunks.append(current.strip())
+                current = s
 
-    # 4. Clause breakdown for sentences exceeding max_chars
-    refined = []
-    for s in restored:
-        if len(s) <= max_chars:
-            refined.append(s)
-        else:
-            clauses = re.split(r'([,;:\-–])', s)
-            sub = ""
-            for cl in clauses:
-                if len(sub) + len(cl) <= max_chars:
-                    sub += cl
-                else:
-                    if sub.strip():
-                        refined.append(sub.strip())
-                    sub = cl
-            if sub.strip():
-                refined.append(sub.strip())
+        if current.strip():
+            chunks.append(current.strip())
 
-    # 5. Merge micro-chunks (<18 chars or <= 2 words) to prevent rapid staccato bursts
-    merged = []
-    for c in refined:
-        clean_c = c.strip()
-        if not clean_c:
-            continue
-        if merged and (len(merged[-1]) + len(clean_c) + 1 <= max_chars) and (len(clean_c.split()) <= 2 or len(clean_c) < 18):
-            merged[-1] = merged[-1] + " " + clean_c
-        else:
-            merged.append(clean_c)
+        # 3. Restore ellipses and clean whitespace
+        restored = []
+        for c in chunks:
+            r = c.replace('__ELLIPSIS__', '...').strip()
+            r = re.sub(r'\s+', ' ', r)
+            if r:
+                restored.append(r)
 
-    return [c for c in merged if len(c.strip()) > 0]
+        # 4. Clause breakdown for sentences exceeding max_chars
+        refined = []
+        for s in restored:
+            if len(s) <= max_chars:
+                refined.append(s)
+            else:
+                clauses = re.split(r'([,;:\-–])', s)
+                sub = ""
+                for cl in clauses:
+                    if len(sub) + len(cl) <= max_chars:
+                        sub += cl
+                    else:
+                        if sub.strip():
+                            refined.append(sub.strip())
+                        sub = cl
+                if sub.strip():
+                    refined.append(sub.strip())
+
+        # 5. Merge micro-chunks (<18 chars or <= 2 words) to prevent rapid staccato bursts
+        merged = []
+        for c in refined:
+            clean_c = c.strip()
+            if not clean_c:
+                continue
+            if merged and (len(merged[-1]) + len(clean_c) + 1 <= max_chars) and (len(clean_c.split()) <= 2 or len(clean_c) < 18):
+                merged[-1] = merged[-1] + " " + clean_c
+            else:
+                merged.append(clean_c)
+
+        # 6. Assign adaptive context-aware pause duration for long-form educational videos
+        for s_idx, c in enumerate(merged):
+            is_last = (s_idx == len(merged) - 1)
+            if is_last:
+                pause = 0.45  # Paragraph / Major concept transition pause
+            elif "?" in c:
+                pause = 0.32  # Inquisitive question reflection gap
+            elif "!" in c:
+                pause = 0.25  # Punchline / affirmation gap
+            elif c.endswith("..."):
+                pause = 0.40  # Suspenseful reveal pause
+            else:
+                pause = 0.20  # Standard sentence boundary
+
+            all_chunks.append({
+                "text": c,
+                "pause": pause,
+                "is_question": ("?" in c),
+                "is_exclamation": ("!" in c),
+            })
+
+    return all_chunks
 
 def auto_accept_model_licenses():
     """Auto-accept all model licenses in VoiceStudio backend so 403 never occurs."""
@@ -226,7 +256,7 @@ def synthesize_chunk_request(
         raise RuntimeError(err_msg)
     return resp.content
 
-def concatenate_and_master(wav_bytes_list: list[bytes], base_name: str) -> dict:
+def concatenate_and_master(wav_bytes_list: list, base_name: str) -> dict:
     if not wav_bytes_list:
         raise ValueError("No audio chunks to concatenate.")
 
@@ -236,7 +266,12 @@ def concatenate_and_master(wav_bytes_list: list[bytes], base_name: str) -> dict:
     first_params = None
     all_frames = []
 
-    for w_bytes in wav_bytes_list:
+    for item in wav_bytes_list:
+        if isinstance(item, tuple):
+            w_bytes, pause_dur = item
+        else:
+            w_bytes, pause_dur = item, 0.20
+
         if not w_bytes or len(w_bytes) < 44:
             continue
         try:
@@ -246,8 +281,8 @@ def concatenate_and_master(wav_bytes_list: list[bytes], base_name: str) -> dict:
                     first_params = params
                 frames = wf.readframes(params.nframes)
                 all_frames.append(frames)
-                # 180ms natural human breathing pause between sentences
-                silence_samples = int(params.framerate * 0.18)
+                # Adaptive human breathing and concept transition pause
+                silence_samples = int(params.framerate * max(0.12, pause_dur))
                 all_frames.append(b'\x00\x00' * silence_samples * params.nchannels)
         except Exception as e:
             print(f"[Warning] Failed to decode audio chunk: {e}")
@@ -333,7 +368,21 @@ def run_synthesis_job(
         jobs[job_id]["total_chunks"] = len(chunks)
         wav_parts = []
 
-        for idx, chunk in enumerate(chunks):
+        for idx, chunk_info in enumerate(chunks):
+            chunk = chunk_info["text"] if isinstance(chunk_info, dict) else chunk_info
+            pause = chunk_info.get("pause", 0.22) if isinstance(chunk_info, dict) else 0.22
+
+            # Context-adaptive guidance & speed modulation
+            chunk_guidance = guidance
+            chunk_speed = speed
+            if isinstance(chunk_info, dict):
+                if chunk_info.get("is_question"):
+                    chunk_guidance = min(1.6, guidance + 0.15)
+                    chunk_speed = speed * 0.96
+                elif chunk_info.get("is_exclamation"):
+                    chunk_guidance = min(1.65, guidance + 0.18)
+                    chunk_speed = speed * 1.02
+
             jobs[job_id]["current_chunk"] = idx + 1
             jobs[job_id]["message"] = f"Synthesizing sentence {idx + 1} of {len(chunks)} on GPU..."
             wav_bytes = synthesize_chunk_request(
@@ -341,11 +390,11 @@ def run_synthesis_job(
                 profile_id=profile_id,
                 language=language,
                 steps=steps,
-                speed=speed,
-                guidance=guidance,
+                speed=chunk_speed,
+                guidance=chunk_guidance,
                 effect_preset=effect_preset,
             )
-            wav_parts.append(wav_bytes)
+            wav_parts.append((wav_bytes, pause))
 
         jobs[job_id]["message"] = "Mastering broadcast audio (-16 LUFS)..."
         base_name = f"cloned_{int(time.time())}_{job_id[:6]}"
