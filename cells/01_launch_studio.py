@@ -82,11 +82,6 @@ subprocess.run([
     "."
 ], cwd=VOICESTUDIO_DIR, check=True)
 
-subprocess.run([
-    "uv", "pip", "install", "--system",
-    "fastapi", "uvicorn", "requests", "soundfile", "scipy", "huggingface_hub"
-], check=True)
-
 # ── 5. Permanent License Gate Bypass & Model Weights Cache ─────────────────────
 print("\n🛡️ 5/6 Patching license gates & preparing AI model weights...")
 
