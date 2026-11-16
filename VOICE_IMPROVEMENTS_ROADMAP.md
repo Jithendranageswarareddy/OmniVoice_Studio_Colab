@@ -5,6 +5,12 @@
 
 ## 1. Acoustic & Prosody Audit: Current 28-Second Baseline Take
 
+* **Take Origin:** Generated on Kaggle Tesla T4 GPU (Session 2026-11-16)
+* **Duration:** `28.69s` (Broadcast standard)
+* **Acoustic Loudness:** `-16.8 dBFS RMS` (Optimal -16 LUFS broadcast master target)
+* **Peak Level:** `-1.76 dBFS True Peak` (No clipping, broadcast headroom maintained)
+* **Sample Rate:** `48,000 Hz` (Ultra-high fidelity studio master)
+
 | Timestamp | Script Line | Current Delivery (Acoustic Finding) | Ideal Delivery for YouTube / Social Media | Root Cause |
 | :--- | :--- | :--- | :--- | :--- |
 | **0:00 – 0:02** | *మీరు ఎప్పుడైనా సూపర్ మార్కెట్కి వెళ్లారా?* | **Flat/Falling Pitch:** Sounds like a statement (*"వెళ్లారు."*). No rising intonation on question mark `?`. | **Curious Hook:** Rising pitch on *"వెళ్లారాఆ?"* with upward inflection inviting the viewer to respond mentally. | TTS tokenizer treats `?` as a boundary pause rather than pitch contour modifier. |
